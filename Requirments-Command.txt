@@ -1,0 +1,108 @@
+=============================================================
+  GUARDIAN EYE – The Immortal Shield Of Your System.
+  Complete Commands & Requirements Guide
+=============================================================
+
+🔹 SYSTEM REQUIREMENTS
+----------------------
+- Windows 10 / 11 (64-bit) (Windows 7/8 with limitations)
+- Python 3.8 or higher (3.11 recommended)
+- Administrator rights (to run tool)
+- Internet connection (for VirusTotal & threat intel)
+- At least 5 GB free disk space
+
+🔹 REQUIRED PYTHON PACKAGES
+---------------------------
+Run these commands one by one in Command Prompt (as admin):
+
+1. pip install psutil
+2. pip install wmi
+3. pip install numpy
+4. pip install scikit-learn
+5. pip install pypiwin32
+6. pip install pywin32
+7. pip install scapy
+8. pip install colorama
+9. pip install cryptography
+10. pip install pyyaml
+11. pip install joblib
+
+👉 OR install all at once:
+   pip install psutil wmi numpy scikit-learn pypiwin32 pywin32 scapy colorama cryptography pyyaml joblib
+
+🔹 OPTIONAL (For advanced features)
+-----------------------------------
+- Sysmon (for kernel-level logging):
+   Download from Microsoft, then run: Sysmon.exe -accepteula -i
+- Npcap (for packet capture):
+   Download from https://npcap.com, install with WinPcap API mode.
+- USB monitoring (PyUSB):
+   pip install pyusb   (libusb driver may be needed)
+
+🔹 HOW TO RUN THE TOOL
+----------------------
+1. Open Command Prompt as Administrator.
+2. Navigate to the folder where guardian_eye.py is saved.
+3. Run:
+
+   python guardian_eye.py
+
+   (This starts full protection with DRY_RUN=True – no actions taken)
+
+4. To test without any action (safe mode):
+   python guardian_eye.py --test-mode
+
+5. To enable LIVE protection (auto-block):
+   Edit the config inside the file: set DRY_RUN = False
+   OR run without --test-mode and change the config.
+
+🔹 COMMANDS (Extra features)
+----------------------------
+--test-mode               : Run in test mode (no real actions)
+--install-service         : Install Guardian Eye as Windows service (boot-time)
+--uninstall-service       : Uninstall the service
+--restore <filename>      : Restore a quarantined file (e.g., --restore chrome.exe)
+--list-quarantine         : Show all quarantined files
+--update-threat-intel     : Update threat intelligence database
+--train-model             : Retrain ML model with current data
+
+🔹 FOLDER STRUCTURE (All data saved here)
+-----------------------------------------
+D:\GuardianEye_Vault\
+   ├── Evidence\        (attack evidence)
+   ├── Forensics\       (pre‑scan reports)
+   ├── Logs\            (daily logs)
+   ├── Quarantine\      (quarantined files – can restore)
+   ├── PCAP\            (packet captures)
+   ├── Models\          (trained ML models)
+   ├── ThreatIntel\     (IOC database)
+   ├── Biometric\       (bio-security data)
+   ├── DNA\             (DNA encoding data)
+   ├── Space\           (satellite data)
+   ├── Neuro\           (brainwave data)
+   └── ... (other phase folders)
+
+🔹 HOW TO DELETE OLD FILES (Free up space)
+------------------------------------------
+- All data is in D:\GuardianEye_Vault. You can safely delete sub-folders:
+   rmdir /s /q D:\GuardianEye_Vault\Evidence
+   rmdir /s /q D:\GuardianEye_Vault\Forensics
+   rmdir /s /q D:\GuardianEye_Vault\PCAP
+- Or delete individual old files manually.
+- Quarantine files can be restored before deletion if needed.
+
+🔹 TROUBLESHOOTING
+------------------
+- If you get "ModuleNotFoundError", install the missing package.
+- If WMI error, run as Administrator.
+- If Scapy error, install Npcap and restart.
+- For any other error, check the logs in D:\GuardianEye_Vault\Logs
+
+🔹 SUPPORT
+----------
+If you face any issue, share the log file with the developer.
+Tool developed for Blue Team / Cybersecurity students.
+
+=============================================================
+       Guardian Eye – The Immortal Shield Of Your System.
+=============================================================

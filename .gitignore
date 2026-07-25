@@ -1,0 +1,122 @@
+# ================================================
+# Python & PyInstaller Build Artifacts
+# ================================================
+
+# PyInstaller build folders
+build/
+dist/
+*.spec
+*.exe
+*.pyd
+*.dll
+*.so
+*.pyc
+
+# PyArmor obfuscation
+.pyarmor/
+pyarmor_runtime_*/
+
+# App distribution folder
+app_main.dist/
+*.dist/
+
+# ================================================
+# Python Cache & Virtual Environment
+# ================================================
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.dll
+*.pyd
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+share/python-wheels/
+.eggs/
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# ================================================
+# IDE & OS Files
+# ================================================
+
+# VS Code
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ================================================
+# Logs, Temporary Files
+# ================================================
+
+logs/
+*.log
+*.tmp
+*.temp
+*.cache
+*.pid
+*.seed
+*.pid.lock
+
+# ================================================
+# Project-Specific Binary Files (DO NOT COMMIT)
+# ================================================
+
+# Windows system binaries
+Sysmon.exe
+Sysmon64.exe
+npcap-*.exe
+*.msi
+
+# Application executables
+VanguardKnight.exe
+app_main.exe
+app_main.dll
+
+# Distribution files
+*.exe
+*.dll
+
+# ================================================
+# Sensitive Configs
+# ================================================
+
+*.env
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
+# ================================================
+# NPM / Node (if any)
+# ================================================
+
+node_modules/
+package-lock.json
+
+# ================================================
+# Other
+# ================================================
+
+*.zip
+*.tar.gz
+*.7z
+*.rar

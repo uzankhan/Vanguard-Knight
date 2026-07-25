@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    VANGUARD KNIGHT - Sysmon Configuration
+    =========================================
+    Ye config Sysmon ko batati hai KYA log karna hai. Bina iske, Sysmon default
+    settings pe bohat kam useful data deta hai.
+
+    Design philosophy: "Log what matters, ignore the noise."
+    - System/trusted processes ka excessive noise filter out karte hain
+      (warna log flood ho jayega aur real threats dab jayengi)
+    - High-value signals (process injection, LSASS access, persistence,
+      network connections from suspicious processes) ko explicitly capture karte hain
+
+    Based on community best-practices (SwiftOnSecurity / Olaf Hartong style
+    configs), customized for Vanguard Knight ki detection logic ke sath.
+
+    Install: sysmon64.exe -i sysmon_config.xml
+    Update:  sysmon64.exe -c sysmon_config.xml
+-->
+<Sysmon schemaversion="4.90">
+  <EventFiltering>
+
+    <!-- ============ EVENT ID 1: Process Creation ============ -->
+    <!-- Sabse important event. Har process launch yahan capture hota hai. -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessCreate onmatch="exclude">
+        <!-- Noise reduction: well-known, extremely high-frequency system noise -->
+        <Image condition="end with">conhost.exe</Image>
+        <Image condition="end with">dllhost.exe</Image>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 3: Network Connection ============ -->
+    <!-- Kaunsa process kis IP/port se connect kar raha hai -->
+    <RuleGroup name="" groupRelation="or">
+      <NetworkConnect onmatch="include">
+        <!-- LOLBins jo network connect karein - high suspicion -->
+        <Image condition="end with">powershell.exe</Image>
+        <Image condition="end with">powershell_ise.exe</Image>
+        <Image condition="end with">pwsh.exe</Image>
+        <Image condition="end with">cmd.exe</Image>
+        <Image condition="end with">wscript.exe</Image>
+        <Image condition="end with">cscript.exe</Image>
+        <Image condition="end with">mshta.exe</Image>
+        <Image condition="end with">rundll32.exe</Image>
+        <Image condition="end with">regsvr32.exe</Image>
+        <Image condition="end with">certutil.exe</Image>
+        <Image condition="end with">bitsadmin.exe</Image>
+        <Image condition="end with">wmic.exe</Image>
+        <Image condition="end with">msbuild.exe</Image>
+        <Image condition="end with">installutil.exe</Image>
+        <!-- Processes running from suspicious/writable locations -->
+        <Image condition="contains">\Temp\</Image>
+        <Image condition="contains">\Downloads\</Image>
+        <Image condition="contains">\AppData\Local\Temp\</Image>
+        <Image condition="contains">\Users\Public\</Image>
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 7: Image/DLL Load ============ -->
+    <!-- DLL sideloading / hijacking detect karne ke liye -->
+    <RuleGroup name="" groupRelation="or">
+      <ImageLoad onmatch="include">
+        <ImageLoaded condition="contains">\Temp\</ImageLoaded>
+        <ImageLoaded condition="contains">\Downloads\</ImageLoaded>
+        <Signed condition="is">false</Signed>
+      </ImageLoad>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 8: CreateRemoteThread ============ -->
+    <!-- PROCESS INJECTION - one of the strongest malware signals -->
+    <RuleGroup name="" groupRelation="or">
+      <CreateRemoteThread onmatch="exclude">
+        <!-- Legit software that injects for normal reasons (rare exceptions only) -->
+        <SourceImage condition="end with">explorer.exe</SourceImage>
+      </CreateRemoteThread>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 10: ProcessAccess ============ -->
+    <!-- CREDENTIAL THEFT DETECTION - catches Mimikatz-style LSASS dumping -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessAccess onmatch="include">
+        <TargetImage condition="end with">lsass.exe</TargetImage>
+      </ProcessAccess>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 11: FileCreate ============ -->
+    <!-- Ransomware detection ka core - mass file writes track karta hai -->
+    <RuleGroup name="" groupRelation="or">
+      <FileCreate onmatch="exclude">
+        <!-- Exclude noisy temp/cache paths that legit apps write constantly -->
+        <TargetFilename condition="contains">\AppData\Local\Microsoft\Windows\INetCache\</TargetFilename>
+        <TargetFilename condition="contains">\AppData\Local\Temp\chrome_</TargetFilename>
+        <TargetFilename condition="end with">.tmp</TargetFilename>
+        <TargetFilename condition="end with">.log</TargetFilename>
+      </FileCreate>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 12/13/14: Registry Events ============ -->
+    <!-- PERSISTENCE DETECTION - Run keys, services, etc. -->
+    <RuleGroup name="" groupRelation="or">
+      <RegistryEvent onmatch="include">
+        <TargetObject condition="contains">\CurrentVersion\Run</TargetObject>
+        <TargetObject condition="contains">\CurrentVersion\RunOnce</TargetObject>
+        <TargetObject condition="contains">\Winlogon\Shell</TargetObject>
+        <TargetObject condition="contains">\Winlogon\Userinit</TargetObject>
+        <TargetObject condition="contains">\Image File Execution Options\</TargetObject>
+        <TargetObject condition="contains">Services</TargetObject>
+        <TargetObject condition="contains">\CurrentControlSet\Control\SafeBoot</TargetObject>
+      </RegistryEvent>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 17/18: Pipe Events ============ -->
+    <!-- Named pipes - often used by C2 frameworks (Cobalt Strike, etc.) -->
+    <RuleGroup name="" groupRelation="or">
+      <PipeEvent onmatch="exclude">
+        <PipeName condition="begin with">\lsass</PipeName>
+      </PipeEvent>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 22: DNS Query ============ -->
+    <!-- DNS tunneling / C2 domain detection -->
+    <RuleGroup name="" groupRelation="or">
+      <DnsQuery onmatch="include">
+        <Image condition="end with">powershell.exe</Image>
+        <Image condition="end with">cmd.exe</Image>
+        <Image condition="end with">rundll32.exe</Image>
+        <Image condition="end with">regsvr32.exe</Image>
+        <Image condition="end with">mshta.exe</Image>
+        <Image condition="contains">\Temp\</Image>
+      </DnsQuery>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 23: FileDelete (Sysmon 1.14+, needs archiving) ============ -->
+    <!-- Ransomware ya attacker apne traces mitane ki koshish -->
+    <RuleGroup name="" groupRelation="or">
+      <FileDelete onmatch="include">
+        <TargetFilename condition="end with">.docx</TargetFilename>
+        <TargetFilename condition="end with">.xlsx</TargetFilename>
+        <TargetFilename condition="end with">.pdf</TargetFilename>
+        <TargetFilename condition="end with">.jpg</TargetFilename>
+        <TargetFilename condition="end with">.png</TargetFilename>
+      </FileDelete>
+    </RuleGroup>
+
+    <!-- ============ EVENT ID 1102 (via Security log, not Sysmon) ============ -->
+    <!-- NOTE: "Event log cleared" is Security-Auditing Event ID 1102, tracked
+         separately by Vanguard Knight's log-tamper watcher, not Sysmon itself. -->
+
+  </EventFiltering>
+</Sysmon>
