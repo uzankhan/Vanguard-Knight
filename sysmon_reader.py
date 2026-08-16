@@ -154,7 +154,8 @@ class SysmonEventReader:
         reader.stop()
     """
 
-    def __init__(self, output_queue: "queue.Queue", bookmark_file: str = None):
+    def __init__(self, output_queue: "queue.Queue", bookmark_file: str = None,
+                 log_callback: Optional[Callable] = None):
         self.output_queue = output_queue
         self.bookmark_mgr = BookmarkManager(
             bookmark_file or r"C:\VanguardKnight_Vault\sysmon_bookmark.json"
@@ -162,9 +163,18 @@ class SysmonEventReader:
         self.running = False
         self._subscription_handle = None
         self._thread = None
+        # THIS IS THE KEY FIX: previously, ALL status/error messages from
+        # this module went ONLY to the Python `logger` (console/log file),
+        # which the GUI never reads. That meant if Sysmon subscription
+        # failed for ANY reason -- pywin32 missing, access denied (not
+        # running as Administrator), the Sysmon channel not existing yet,
+        # etc. -- the GUI would show "Shield Active" with a totally silent
+        # failure underneath: no events would ever be detected, and there
+        # was no visible error explaining why. Now every critical message
+        # is ALSO pushed through log_callback (wired to the GUI's Live
+        # Activity Log by core_engine.py), so failures are immediately visible.
+        self._log_callback = log_callback or (lambda msg: None)
 
-        # Imported lazily so this module can at least be syntax-checked /
-        # unit-tested for the XML parsing logic on non-Windows machines too.
         try:
             import win32evtlog
             import win32event
@@ -175,15 +185,25 @@ class SysmonEventReader:
             self._have_winapi = True
         except ImportError:
             self._have_winapi = False
-            logger.error("pywin32 not available -- SysmonEventReader requires Windows.")
+            msg = ("[SYSMON] pywin32 is not installed or not importable -- "
+                  "real-time monitoring CANNOT start. Run: pip install pywin32")
+            logger.error(msg)
+            self._log_callback(msg)
 
     def start(self):
         if not self._have_winapi:
+            msg = "[SYSMON] Cannot start -- pywin32 unavailable (see earlier error)."
+            self._log_callback(msg)
             raise RuntimeError("SysmonEventReader requires pywin32 and Windows Event Log APIs.")
         self.running = True
         self._thread = threading.Thread(target=self._run_subscription, daemon=True)
         self._thread.start()
-        logger.info("[SysmonReader] Real-time subscription started.")
+        # NOTE: this message means the background thread was launched --
+        # it does NOT yet mean the Sysmon subscription actually succeeded.
+        # Watch for the follow-up "[SYSMON] Subscribed successfully" or
+        # a "[SYSMON] FAILED" message a moment later.
+        logger.info("[SysmonReader] Real-time subscription thread started.")
+        self._log_callback("[SYSMON] Starting Sysmon event subscription...")
 
     def stop(self):
         self.running = False
@@ -200,63 +220,142 @@ class SysmonEventReader:
         evt = self._win32evtlog
         saved_bookmark_xml = self.bookmark_mgr.load()
 
+        # -----------------------------------------------------------
+        # SWITCHED FROM SignalEvent+WaitForSingleObject TO Callback MODEL.
+        #
+        # Diagnostic evidence proved the previous approach was broken: the
+        # heartbeat ("Still listening...") fired every 15s for 3+ minutes
+        # while Sysmon was actively logging real activity (confirmed via
+        # Event Viewer), but the "[SYSMON] Signal received" line -- which
+        # would only ever print the instant WaitForSingleObject returned
+        # WAIT_OBJECT_0 -- NEVER appeared once. That conclusively means
+        # Windows was never signaling the event handle at all, regardless
+        # of Query/Bookmark refinements already tried.
+        #
+        # The Callback model sidesteps this entirely: instead of us
+        # manually waiting on a Win32 event object, pywin32/the Windows
+        # Event Log API calls OUR function directly whenever a matching
+        # event occurs. This is the more commonly-documented, battle-
+        # tested pattern for EvtSubscribe and removes an entire class of
+        # manual event-object marshaling issues.
+        # -----------------------------------------------------------
+
+        self._events_seen_total = 0
+        self._events_parsed_total = 0
+        self._latest_bookmark = None
+
+        def _on_event(reason, context, event_handle):
+            # `reason` distinguishes an actual delivered event from an
+            # error notification (e.g. the subscription itself failing
+            # asynchronously after initially succeeding).
+            try:
+                action_error = getattr(evt, 'EvtSubscribeActionError', 0)
+                if reason == action_error:
+                    self._log_callback(f"[SYSMON] Subscription reported an async error (reason={reason}).")
+                    return 0
+
+                self._events_seen_total += 1
+                xml_string = evt.EvtRender(event_handle, evt.EvtRenderEventXml)
+                parsed = parse_sysmon_event_xml(xml_string)
+
+                if parsed:
+                    self._events_parsed_total += 1
+                    try:
+                        self.output_queue.put(parsed, timeout=1)
+                    except queue.Full:
+                        logger.warning("[SysmonReader] Output queue full -- dropping event.")
+                else:
+                    self._log_callback("[SYSMON] Received an event but failed to parse its XML "
+                                      "-- check parse_sysmon_event_xml for a schema mismatch.")
+
+                # Track bookmark position (saved periodically by the main
+                # loop below, not here, to avoid disk I/O on every single
+                # event from inside the callback).
+                bookmark = evt.EvtCreateBookmark(None)
+                evt.EvtUpdateBookmark(bookmark, event_handle)
+                self._latest_bookmark = bookmark
+            except Exception as e:
+                logger.error(f"[SysmonReader] Callback error: {e}")
+            return 0
+
         try:
             if saved_bookmark_xml:
-                # Resume from exactly where we left off last time.
-                bookmark = evt.EvtCreateBookmark(saved_bookmark_xml)
-                flags = evt.EvtSubscribeStartAfterBookmark
-                logger.info("[SysmonReader] Resuming from saved bookmark.")
+                try:
+                    bookmark = evt.EvtCreateBookmark(saved_bookmark_xml)
+                    flags = evt.EvtSubscribeStartAfterBookmark
+                    logger.info("[SysmonReader] Resuming from saved bookmark.")
+                except Exception as e:
+                    # A corrupted/stale bookmark should never permanently
+                    # block monitoring -- self-heal by starting fresh.
+                    self._log_callback(f"[SYSMON] Saved bookmark was invalid ({e}) -- "
+                                      f"starting fresh from current time instead.")
+                    bookmark = None
+                    flags = evt.EvtSubscribeToFutureEvents
+                    saved_bookmark_xml = None
             else:
-                # First run ever: only watch NEW events from now on (don't
-                # replay the entire historical log, which could be huge and
-                # would flood the detection pipeline with stale events).
-                bookmark = evt.EvtCreateBookmark(None)
+                bookmark = None
                 flags = evt.EvtSubscribeToFutureEvents
                 logger.info("[SysmonReader] No bookmark found -- starting from current time.")
 
-            subscription = evt.EvtSubscribe(
-                SYSMON_CHANNEL,
-                flags,
-                Bookmark=bookmark if saved_bookmark_xml else None,
-                Callback=None  # pull-model: we poll with EvtNext below
-            )
+            subscribe_kwargs = {'Callback': _on_event}
+            if saved_bookmark_xml:
+                subscribe_kwargs['Bookmark'] = bookmark
+
+            subscription = evt.EvtSubscribe(SYSMON_CHANNEL, flags, **subscribe_kwargs)
             self._subscription_handle = subscription
 
+            success_msg = ("[SYSMON] Subscribed successfully (callback mode) -- "
+                           "real-time monitoring is now genuinely active.")
+            logger.info(success_msg)
+            self._log_callback(success_msg)
+
+            last_heartbeat = time.time()
             last_bookmark_save = time.time()
 
+            # The callback fires on its own (driven by Windows) -- this
+            # loop's only jobs are: stay alive so the subscription object
+            # doesn't get garbage-collected, periodically save the
+            # bookmark, and report the heartbeat.
             while self.running:
-                try:
-                    events = evt.EvtNext(subscription, 10, timeout=1000)
-                except self._pywintypes.error:
-                    # Timeout (no new events) -- normal, just loop again.
-                    continue
+                time.sleep(1)
 
-                for event_handle in events:
-                    xml_string = evt.EvtRender(event_handle, evt.EvtRenderEventXml)
-                    parsed = parse_sysmon_event_xml(xml_string)
-                    if parsed:
-                        try:
-                            self.output_queue.put(parsed, timeout=1)
-                        except queue.Full:
-                            logger.warning("[SysmonReader] Output queue full -- dropping event "
-                                           "(pipeline is falling behind, consider tuning workers).")
+                if time.time() - last_heartbeat > 15:
+                    self._log_callback(f"[SYSMON] Still listening (callback mode)... "
+                                       f"({self._events_seen_total} raw event(s), "
+                                       f"{self._events_parsed_total} parsed and queued so far)")
+                    last_heartbeat = time.time()
 
-                    # Update our position bookmark to this event.
-                    bookmark = evt.EvtCreateBookmark(None)
-                    evt.EvtUpdateBookmark(bookmark, event_handle)
-
-                # Persist bookmark periodically (every 5 sec), not on every
-                # single event, to avoid excessive disk I/O.
-                if time.time() - last_bookmark_save > 5:
+                if self._latest_bookmark is not None and time.time() - last_bookmark_save > 5:
                     try:
-                        bookmark_xml = evt.EvtRender(bookmark, evt.EvtRenderBookmark)
+                        bookmark_xml = evt.EvtRender(self._latest_bookmark, evt.EvtRenderBookmark)
                         self.bookmark_mgr.save(bookmark_xml)
                         last_bookmark_save = time.time()
                     except Exception as e:
                         logger.error(f"[SysmonReader] Bookmark save failed: {e}")
 
         except Exception as e:
-            logger.error(f"[SysmonReader] Subscription error: {e}")
+            error_text = str(e)
+            # Translate the most common real-world failure causes into
+            # actionable guidance, since the raw pywintypes error codes
+            # are cryptic. These are exactly the failure modes that were
+            # previously causing "Activate does nothing, silently."
+            if "Access is denied" in error_text or "0x5" in error_text:
+                diagnosis = ("ACCESS DENIED reading the Sysmon event log. "
+                             "This almost always means Vanguard Knight was NOT run as "
+                             "Administrator. Close it and relaunch by right-clicking "
+                             "app_main.py's terminal/shortcut -> 'Run as Administrator'.")
+            elif "channel" in error_text.lower() or "0x3a9f" in error_text.lower():
+                diagnosis = ("The 'Microsoft-Windows-Sysmon/Operational' channel was not "
+                             "found. This means Sysmon itself is not installed/running yet. "
+                             "Run (as Administrator): Sysmon64.exe -i sysmon_config.xml -accepteula")
+            else:
+                diagnosis = ("Unexpected error -- see the full message above. If this "
+                             "persists, check that Sysmon is installed and running "
+                             "(Task Manager -> Services -> look for 'Sysmon64').")
+
+            msg = f"[SYSMON] FAILED to start monitoring: {error_text}\n[SYSMON] Diagnosis: {diagnosis}"
+            logger.error(msg)
+            self._log_callback(msg)
             self.running = False
 
 

@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<!--
+  Ultimate Photorealistic Universe Explorer
+  Made by Uzan Khan
+  A fully interactive 3D cosmic atlas — mouse, touch, keyboard, and hand-gesture navigable.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ultimate Photorealistic Universe — Complete Cosmic Atlas | by Uzan Khan</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#000; font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; }
+  canvas { display:block; width:100vw; height:100vh; }
+
+  #intro {
+    position:absolute; inset:0; z-index:50; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; background:#000;
+    transition:opacity 1.6s ease; pointer-events:none;
+  }
+  #intro h1 { color:#dff2ff; font-size:clamp(28px,5vw,56px); letter-spacing:10px; font-weight:300;
+    text-shadow:0 0 30px rgba(120,200,255,.9), 0 0 80px rgba(80,140,255,.5); animation:pulseGlow 3s ease-in-out infinite; }
+  #intro p { color:#7fa8d9; margin-top:14px; letter-spacing:4px; font-size:12px; text-transform:uppercase; }
+  @keyframes pulseGlow { 0%,100%{opacity:.85} 50%{opacity:1} }
+  #intro.hidden { opacity:0; }
+
+  #info-panel {
+    position:absolute; bottom:-320px; left:50%; transform:translateX(-50%);
+    width:min(460px,92vw); background:rgba(3,8,18,.88); border:1px solid rgba(100,200,255,.5);
+    border-radius:14px; padding:20px 22px; box-shadow:0 0 40px rgba(60,160,255,.35), inset 0 0 30px rgba(0,60,120,.15);
+    color:#fff; transition:bottom .5s cubic-bezier(.175,.885,.32,1.275); pointer-events:none; z-index:20; backdrop-filter:blur(12px);
+  }
+  #info-panel.active { bottom:26px; }
+  #info-panel .badge { display:inline-block; font-size:10px; letter-spacing:2px; color:#000; background:#7fe3ff; padding:3px 9px; border-radius:20px; margin-bottom:8px; font-weight:700; }
+  #info-panel h1 { font-size:21px; color:#eafcff; margin-bottom:4px; letter-spacing:1px; font-weight:600; }
+  #info-panel h3 { font-size:12.5px; color:#ffb454; margin-bottom:10px; font-weight:400; letter-spacing:.5px; }
+  #info-panel p { font-size:12.5px; color:#c7e3ff; line-height:1.6; }
+
+  #controls-guide {
+    position:absolute; top:16px; left:16px; color:#dff; font-size:11.5px;
+    background:rgba(3,8,16,.72); padding:13px 16px; border-left:3px solid #4fd8ff;
+    border-radius:8px; pointer-events:none; line-height:1.85; backdrop-filter:blur(6px); z-index:15;
+    max-width:230px;
+  }
+  #controls-guide b { color:#8fe3ff; letter-spacing:1px; }
+
+  #hud-top {
+    position:absolute; top:16px; right:16px; z-index:20; display:flex; flex-direction:column; gap:8px; align-items:flex-end;
+  }
+  #search-box {
+    background:rgba(3,8,16,.78); border:1px solid rgba(100,200,255,.4); border-radius:24px;
+    padding:9px 16px; color:#dff2ff; font-size:13px; width:230px; outline:none; backdrop-filter:blur(8px);
+  }
+  #search-box::placeholder { color:#6f93b8; }
+  #search-results {
+    background:rgba(3,8,16,.92); border:1px solid rgba(100,200,255,.3); border-radius:10px;
+    width:230px; max-height:260px; overflow-y:auto; display:none; backdrop-filter:blur(8px);
+  }
+  #search-results div { padding:8px 12px; font-size:12px; color:#cfe9ff; cursor:pointer; border-bottom:1px solid rgba(255,255,255,.05); pointer-events:all; }
+  #search-results div:hover { background:rgba(80,180,255,.18); }
+
+  #legend {
+    position:absolute; bottom:16px; right:16px; z-index:20; background:rgba(3,8,16,.78);
+    border:1px solid rgba(100,200,255,.3); border-radius:10px; padding:10px 12px; max-height:56vh; overflow-y:auto;
+    backdrop-filter:blur(8px); font-size:11px; color:#cfe9ff; width:198px;
+  }
+  #legend h4 { font-size:10.5px; letter-spacing:2px; color:#8fe3ff; margin-bottom:8px; text-transform:uppercase; }
+  .legend-row { display:flex; align-items:center; gap:7px; padding:3px 0; cursor:pointer; opacity:.95; }
+  .legend-row:hover { opacity:1; }
+  .legend-row.off { opacity:.32; }
+  .legend-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .legend-row span.lbl { flex:1; }
+  .legend-row span.cnt { color:#6f93b8; font-size:10px; }
+
+  #fps { position:absolute; bottom:16px; left:16px; z-index:15; color:#3d5a78; font-size:10px; letter-spacing:1px; pointer-events:none; }
+
+  #gesture-btn {
+    position:absolute; bottom:16px; left:150px; z-index:20; background:rgba(3,8,16,.78);
+    border:1px solid rgba(100,200,255,.4); border-radius:24px; padding:9px 16px; color:#dff2ff;
+    font-size:12px; cursor:pointer; backdrop-filter:blur(8px); display:flex; align-items:center; gap:7px;
+    pointer-events:all; transition:border-color .3s;
+  }
+  #gesture-btn.on { border-color:#7fffb0; color:#c8ffe0; }
+  #gesture-status { position:absolute; bottom:56px; left:150px; z-index:20; background:rgba(3,8,16,.7);
+    border-radius:8px; padding:6px 12px; font-size:11px; color:#9fe3ff; display:none; pointer-events:none; backdrop-filter:blur(6px); }
+  #gesture-status.show { display:block; }
+  #gesture-cursor { position:absolute; width:26px; height:26px; border:2px solid #4da6ff; border-radius:50%;
+    transform:translate(-50%,-50%); pointer-events:none; z-index:30; display:none; box-shadow:0 0 18px rgba(77,166,255,.85);
+    transition:width .15s, height .15s, border-color .15s, box-shadow .15s; }
+  #gesture-cursor.active { border-color:#ffd23f; width:18px; height:18px; box-shadow:0 0 22px rgba(255,210,63,.9); }
+  #gesture-video { position:absolute; bottom:-9999px; width:160px; }
+  #flight-vignette { position:absolute; inset:0; z-index:25; pointer-events:none; opacity:0;
+    background:radial-gradient(ellipse at center, rgba(120,190,255,0) 55%, rgba(120,190,255,.35) 100%);
+    transition:opacity .2s; }
+
+  #legend::-webkit-scrollbar, #search-results::-webkit-scrollbar { width:5px; }
+  #legend::-webkit-scrollbar-thumb, #search-results::-webkit-scrollbar-thumb { background:#2a5578; border-radius:4px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+</head>
+<body>
+
+<div id="intro"><h1>COSMIC ATLAS</h1><p>Every galaxy · every star · every world</p><p style="margin-top:22px;font-size:10px;letter-spacing:3px;opacity:.65;">MADE BY UZAN KHAN</p></div>
+
+<div id="info-panel">
+  <div class="badge" id="obj-badge">OBJECT</div>
+  <h1 id="obj-name">Celestial Object</h1>
+  <h3 id="obj-type">Type</h3>
+  <p id="obj-desc">Loading telemetry data...</p>
+</div>
+
+<div id="controls-guide">
+  <b>🌌 NAVIGATION</b><br>
+  • Mouse Drag / Touch — Rotate<br>
+  • Scroll / Pinch — Zoom<br>
+  • Right-Drag / 2-Finger Drag — Pan<br>
+  • WASD / Arrows — Fly Around<br>
+  • Q / E — Move Up / Down<br>
+  • Click Object — Inspect & Fly In<br>
+  • 🖐️ Button — Hand Gesture Control
+</div>
+
+<div id="hud-top">
+  <input id="search-box" placeholder="🔍 Search the universe...">
+  <div id="search-results"></div>
+</div>
+
+<div id="legend"><h4>Layers</h4><div id="legend-body"></div></div>
+<div id="fps"></div>
+<div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:15;color:#3d5a78;font-size:10px;letter-spacing:1px;pointer-events:none;">Made by Uzan Khan</div>
+
+<div id="gesture-btn"><span id="gesture-icon">🖐️</span><span id="gesture-label">Hand Gestures</span></div>
+<div id="gesture-status"></div>
+<div id="gesture-cursor"></div>
+<video id="gesture-video" autoplay playsinline muted></video>
+<div id="flight-vignette"></div>
+
+<script>
+(function(){
+"use strict";
+// ============================================================
+// Ultimate Photorealistic Universe Explorer — Made by Uzan Khan
+// Mouse / touch / keyboard / hand-gesture navigable 3D cosmic atlas.
+// ============================================================
+
+// ============================================================
+// DETERMINISTIC PRNG (stable layout across reloads)
+// ============================================================
+function hashStr(s){ let h=1779033703^s.length; for(let i=0;i<s.length;i++){ h=Math.imul(h^s.charCodeAt(i),3432918353); h=h<<13|h>>>19; } return function(){ h=Math.imul(h^h>>>16,2246822507); h=Math.imul(h^h>>>13,3266489909); h^=h>>>16; return (h>>>0)/4294967296; }; }
+function rng(seedStr){ const f=hashStr(seedStr); let s=f(),s2=f(),s3=f(),s4=f();
+  return function(){ const t=s^ (s<<11); s=s2; s2=s3; s3=s4; s4=(s4^(s4>>>19))^(t^(t>>>8)); return ((s4>>>0))/4294967296; }; }
+function pick(r,arr){ return arr[Math.floor(r()*arr.length)]; }
+function rangeR(r,a,b){ return a+r()*(b-a); }
+function spherePoint(r,minR,maxR){
+  const u=r(),v=r(); const theta=2*Math.PI*u; const phi=Math.acos(2*v-1);
+  const rad=rangeR(r,minR,maxR);
+  return new THREE.Vector3(rad*Math.sin(phi)*Math.cos(theta), rad*Math.cos(phi)*0.55, rad*Math.sin(phi)*Math.sin(theta));
+}
+
+// ============================================================
+// SCENE / CAMERA / RENDERER / COMPOSER
+// ============================================================
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000000, 0.0000085);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 200000);
+camera.position.set(0, 500, 1500);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:"high-performance" });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.rotateSpeed = 0.55;
+controls.zoomSpeed = 0.85;
+controls.panSpeed = 0.7;
+controls.maxDistance = 90000;
+controls.minDistance = 8;
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+renderer.domElement.style.touchAction = 'none';
+
+scene.add(new THREE.AmbientLight(0x223355, 0.55));
+const sunLight = new THREE.PointLight(0xfff4dd, 4.2, 60000, 1.6);
+scene.add(sunLight);
+
+let composer, bloomPass;
+try {
+  composer = new THREE.EffectComposer(renderer);
+  composer.addPass(new THREE.RenderPass(scene, camera));
+  bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.15, 0.85, 0.12);
+  composer.addPass(bloomPass);
+} catch(e){ composer = null; }
+
+// ============================================================
+// TEXTURE GENERATORS
+// ============================================================
+function noiseTexture(baseColor, spotColor, count, size){
+  size = size || 512;
+  const c=document.createElement('canvas'); c.width=size*2; c.height=size; const ctx=c.getContext('2d');
+  ctx.fillStyle=baseColor; ctx.fillRect(0,0,c.width,c.height);
+  ctx.fillStyle=spotColor;
+  for(let i=0;i<count;i++){ ctx.globalAlpha = 0.35+Math.random()*0.5; ctx.beginPath();
+    ctx.arc(Math.random()*c.width, Math.random()*c.height, Math.random()*(size*0.07)+2, 0, Math.PI*2); ctx.fill(); }
+  ctx.globalAlpha=1;
+  return new THREE.CanvasTexture(c);
+}
+function glowSprite(hex, size){
+  size = size||256;
+  const c=document.createElement('canvas'); c.width=c.height=size; const ctx=c.getContext('2d');
+  const g=ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+  const col = '#'+new THREE.Color(hex).getHexString();
+  g.addColorStop(0, col); g.addColorStop(0.25, col+'cc'); g.addColorStop(0.55,col+'44'); g.addColorStop(1,'#00000000');
+  ctx.fillStyle=g; ctx.fillRect(0,0,size,size);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map:tex, blending:THREE.AdditiveBlending, transparent:true, depthWrite:false });
+  return new THREE.Sprite(mat);
+}
+function ringAlphaTexture(colA, colB){
+  const size=512; const c=document.createElement('canvas'); c.width=size; c.height=32; const ctx=c.getContext('2d');
+  const g=ctx.createLinearGradient(0,0,size,0);
+  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(.12, colA); g.addColorStop(.35,colB); g.addColorStop(.55,colA);
+  g.addColorStop(.7,'rgba(0,0,0,0)'); g.addColorStop(.78,colB); g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,size,32);
+  return new THREE.CanvasTexture(c);
+}
+function starSpriteTexture(){
+  const size=64; const c=document.createElement('canvas'); c.width=c.height=size; const ctx=c.getContext('2d');
+  const g=ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+  g.addColorStop(0,'#ffffff'); g.addColorStop(.35,'#bfe0ff'); g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,size,size);
+  return new THREE.CanvasTexture(c);
+}
+const STAR_SPRITE = starSpriteTexture();
+
+// ============================================================
+// STARFIELD BACKGROUND + GALACTIC BAND (twinkle shader)
+// ============================================================
+(function buildStarfield(){
+  const COUNT = 26000;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(COUNT*3);
+  const phase = new Float32Array(COUNT);
+  const col = new Float32Array(COUNT*3);
+  const r = rng('starfield-bg');
+  const tint = [0x9db8ff,0xbfd4ff,0xffffff,0xffe9c7,0xffd2a8];
+  for(let i=0;i<COUNT;i++){
+    const v = spherePoint(r, 20000, 78000);
+    // flatten some into a galactic band for realism
+    if(r()<0.4){ v.y *= 0.15; }
+    pos[i*3]=v.x; pos[i*3+1]=v.y; pos[i*3+2]=v.z;
+    phase[i]=r()*Math.PI*2;
+    const c = new THREE.Color(pick(r,tint));
+    col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('phase', new THREE.BufferAttribute(phase,1));
+  geo.setAttribute('color', new THREE.BufferAttribute(col,3));
+  const mat = new THREE.ShaderMaterial({
+    uniforms:{ uTime:{value:0}, uTex:{value:STAR_SPRITE} },
+    vertexShader:`
+      attribute float phase; varying vec3 vColor; varying float vPhase; uniform float uTime;
+      void main(){ vColor=color; vPhase=phase;
+        vec4 mv = modelViewMatrix*vec4(position,1.0);
+        float tw = 0.6+0.4*sin(uTime*1.5+phase*6.2831);
+        gl_PointSize = (1.6+tw*1.8) * (30000.0/-mv.z);
+        gl_Position = projectionMatrix*mv; }`,
+    fragmentShader:`
+      varying vec3 vColor; varying float vPhase; uniform sampler2D uTex; uniform float uTime;
+      void main(){ float tw=0.55+0.45*sin(uTime*1.5+vPhase*6.2831);
+        vec4 t = texture2D(uTex, gl_PointCoord);
+        gl_FragColor = vec4(vColor*tw, 1.0)*t; }`,
+    vertexColors:true, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending
+  });
+  const pts = new THREE.Points(geo, mat);
+  scene.add(pts);
+  window.__starfieldMat = mat;
+})();
+
+// ============================================================
+// THE SUN — animated plasma shader + corona + flare
+// ============================================================
+const sunGroup = new THREE.Group(); scene.add(sunGroup);
+const sunMat = new THREE.ShaderMaterial({
+  uniforms:{ uTime:{value:0} },
+  vertexShader:`varying vec3 vN; varying vec3 vPos; void main(){ vN=normalize(normalMatrix*normal); vPos=position;
+    gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    varying vec3 vN; varying vec3 vPos; uniform float uTime;
+    float hash(vec3 p){ return fract(sin(dot(p,vec3(12.9898,78.233,45.164)))*43758.5453); }
+    float noise(vec3 p){ vec3 i=floor(p); vec3 f=fract(p); f=f*f*(3.0-2.0*f);
+      float n000=hash(i), n100=hash(i+vec3(1,0,0)), n010=hash(i+vec3(0,1,0)), n110=hash(i+vec3(1,1,0));
+      float n001=hash(i+vec3(0,0,1)), n101=hash(i+vec3(1,0,1)), n011=hash(i+vec3(0,1,1)), n111=hash(i+vec3(1,1,1));
+      return mix(mix(mix(n000,n100,f.x),mix(n010,n110,f.x),f.y), mix(mix(n001,n101,f.x),mix(n011,n111,f.x),f.y), f.z); }
+    void main(){
+      vec3 p = vPos*0.045 + vec3(0.0,uTime*0.12,uTime*0.07);
+      float n = noise(p)*0.6 + noise(p*2.3+10.0)*0.3 + noise(p*4.7+20.0)*0.15;
+      vec3 cool = vec3(0.75,0.16,0.02); vec3 hot = vec3(1.0,0.85,0.35);
+      vec3 col = mix(cool, hot, clamp(n*1.3,0.0,1.0));
+      float fres = pow(1.0-abs(dot(vN, vec3(0.0,0.0,1.0))), 2.2);
+      col += vec3(1.0,0.7,0.3)*fres*0.9;
+      gl_FragColor = vec4(col,1.0);
+    }`
+});
+const sun = new THREE.Mesh(new THREE.SphereGeometry(55,96,96), sunMat);
+sun.userData = { name:"The Sun", type:"G-type Yellow Dwarf Star", desc:"The primary stellar anchor of our solar system — a roiling sphere of plasma fusing hydrogen into helium, radiating the light and heat that sustains every world around it.", category:"star" };
+sunGroup.add(sun);
+const corona = glowSprite(0xffb35c, 512); corona.scale.set(300,300,1); sunGroup.add(corona);
+const corona2 = glowSprite(0xfff2c8, 512); corona2.scale.set(150,150,1); sunGroup.add(corona2);
+
+const interactables = [sun];
+const orbitables = [];
+const spinables = [];
+const updatables = [];
+
+function addOrbitRing(radius, color, opacity){
+  const pts=[]; const seg=180;
+  for(let i=0;i<=seg;i++){ const a=i/seg*Math.PI*2; pts.push(new THREE.Vector3(Math.cos(a)*radius,0,Math.sin(a)*radius)); }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({ color: color||0x335577, transparent:true, opacity: opacity!==undefined?opacity:0.28 });
+  scene.add(new THREE.Line(geo, mat));
+}
+
+// ============================================================
+// SOLAR SYSTEM BODIES (planets, dwarf planets, moons)
+// ============================================================
+function createSystemBody(cfg){
+  const pivot = new THREE.Group(); (cfg.parent||scene).add(pivot);
+  const geo = new THREE.SphereGeometry(cfg.r, 48,48);
+  const mat = new THREE.MeshStandardMaterial({ map:cfg.tex, roughness:0.82, metalness:0.05, emissive:cfg.emissive||0x000000, emissiveIntensity:cfg.emissiveIntensity||0 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.x = cfg.dist;
+  mesh.userData = { name:cfg.name, type:cfg.type, desc:cfg.desc, category:cfg.category||'planet' };
+  pivot.add(mesh);
+  interactables.push(mesh);
+  if(cfg.dist>0) orbitables.push({ pivot, mesh, speed:cfg.speed, selfSpin:cfg.spin!==undefined?cfg.spin:0.01 });
+  if(cfg.ring) addOrbitRing(cfg.dist, cfg.ringColor||0x335577, 0.22);
+  return { pivot, mesh };
+}
+
+createSystemBody({ r:3, tex:noiseTexture('#8a8a8a','#4a4a4a',90), dist:95, speed:0.0042, name:"Mercury", type:"Terrestrial Planet", desc:"A scorched, heavily cratered world with the most extreme temperature swings in the solar system.", ring:true });
+createSystemBody({ r:6, tex:noiseTexture('#c48941','#85531d',40), dist:150, speed:0.0031, name:"Venus", type:"Terrestrial Planet", desc:"Shrouded in thick toxic clouds, Venus suffers a runaway greenhouse effect making it the hottest planet.", ring:true });
+
+const earthSys = createSystemBody({ r:7.5, tex:noiseTexture('#1b3d6d','#2e5a27',55), dist:220, speed:0.0025, name:"Earth", type:"Terrestrial Planet", desc:"Our vibrant home — the only known world with liquid oceans, a breathable atmosphere, and life.", ring:true });
+// Earth clouds + atmosphere glow
+const cloudTex = noiseTexture('#00000000','#eef',30,256);
+const clouds = new THREE.Mesh(new THREE.SphereGeometry(7.65,48,48), new THREE.MeshStandardMaterial({ map:cloudTex, transparent:true, opacity:0.35, depthWrite:false }));
+earthSys.mesh.add(clouds); spinables.push({mesh:clouds, speed:0.006});
+const atmoMat = new THREE.ShaderMaterial({ uniforms:{}, transparent:true, blending:THREE.AdditiveBlending, side:THREE.BackSide,
+  vertexShader:`varying vec3 vN; void main(){ vN=normalize(normalMatrix*normal); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`varying vec3 vN; void main(){ float i=pow(0.65-dot(vN,vec3(0,0,1.0)),3.0); gl_FragColor=vec4(0.35,0.6,1.0,1.0)*i; }` });
+const atmo = new THREE.Mesh(new THREE.SphereGeometry(8.1,48,48), atmoMat); earthSys.mesh.add(atmo);
+
+createSystemBody({ r:2, tex:noiseTexture('#999','#333',80), dist:16, speed:0.03, name:"Moon", type:"Natural Satellite", desc:"Earth's tidally-locked companion, governing our ocean tides and stabilizing our planet's axial tilt.", parent:earthSys.mesh, category:'moon' });
+
+const marsSys = createSystemBody({ r:4.5, tex:noiseTexture('#bd5d38','#6e3015',70), dist:300, speed:0.002, name:"Mars", type:"Terrestrial Planet", desc:"The crimson world, home to Olympus Mons — the tallest volcano in the solar system — and vast dust storms.", ring:true });
+createSystemBody({ r:1.2, tex:noiseTexture('#554','#221',50), dist:12, speed:0.05, name:"Phobos", type:"Martian Moon", desc:"An irregular captured asteroid, orbiting Mars so closely it will eventually break apart or crash.", parent:marsSys.mesh, category:'moon' });
+createSystemBody({ r:0.8, tex:noiseTexture('#443','#111',40), dist:18, speed:0.035, name:"Deimos", type:"Martian Moon", desc:"The smaller, outermost moon of Mars, likely a captured carbonaceous asteroid.", parent:marsSys.mesh, category:'moon' });
+// Mars rovers
+["Sojourner","Spirit","Opportunity","Curiosity","Perseverance"].forEach((n,i)=>{
+  const g = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.3,0.6), new THREE.MeshStandardMaterial({color:0xd8d0c0, metalness:0.6, roughness:0.4}));
+  const a = (i/5)*Math.PI*2; g.position.set(Math.cos(a)*5.6, 0, Math.sin(a)*5.6);
+  g.userData = { name:n, type:"Mars Rover / Lander", desc:"A robotic explorer that studied the Martian surface, searching for signs of past water and life.", category:'mission' };
+  marsSys.mesh.add(g); interactables.push(g);
+});
+
+const jupiterSys = createSystemBody({ r:18, tex:noiseTexture('#bf926b','#6b4d32',45), dist:450, speed:0.0011, name:"Jupiter", type:"Gas Giant", desc:"The colossal king of planets, featuring the centuries-old Great Red Spot storm and a powerful magnetosphere.", ring:true });
+const saturnSys = createSystemBody({ r:15, tex:noiseTexture('#d9c29a','#947a50',30), dist:650, speed:0.0008, name:"Saturn", type:"Gas Giant", desc:"The jewel of the solar system, encircled by a spectacular system of icy, rocky rings.", ring:true });
+const ringTex = ringAlphaTexture('rgba(210,190,150,0.9)','rgba(160,140,100,0.5)');
+const sRing = new THREE.Mesh(new THREE.RingGeometry(20,40,128), new THREE.MeshStandardMaterial({ map:ringTex, side:THREE.DoubleSide, transparent:true, roughness:0.9 }));
+sRing.rotation.x = Math.PI/2 - 0.02; saturnSys.mesh.add(sRing);
+
+const uranusSys = createSystemBody({ r:10, tex:noiseTexture('#4370cc','#1e3875',20), dist:860, speed:0.0006, name:"Uranus", type:"Ice Giant", desc:"A tilted ice giant that rotates almost completely on its side along its orbital plane.", ring:true });
+const neptuneSys = createSystemBody({ r:9.5, tex:noiseTexture('#234185','#0f1c3d',20), dist:1050, speed:0.00047, name:"Neptune", type:"Ice Giant", desc:"The deep azure outermost giant, lashed by the fastest winds recorded in the solar system.", ring:true });
+
+const plutoSys = createSystemBody({ r:2.5, tex:noiseTexture('#8c7a6b','#4a3f35',50), dist:1250, speed:0.00035, name:"Pluto", type:"Dwarf Planet", desc:"An icy plutoid in the distant Kuiper Belt, with a heart-shaped nitrogen-ice glacier.", ring:true, category:'dwarf' });
+const ceresSys = createSystemBody({ r:2.2, tex:noiseTexture('#9a9a9a','#525252',60), dist:420, speed:0.0012, name:"Ceres", type:"Dwarf Planet / Asteroid", desc:"The largest object in the main asteroid belt, with bright salt deposits and possible subsurface ocean.", ring:true, category:'dwarf' });
+const erisSys = createSystemBody({ r:2.0, tex:noiseTexture('#cccccc','#888888',40), dist:1400, speed:0.0003, name:"Eris", type:"Dwarf Planet", desc:"A massive scattered-disc object whose discovery triggered Pluto's reclassification.", ring:true, category:'dwarf' });
+const haumeaSys = createSystemBody({ r:1.8, tex:noiseTexture('#edd1b2','#a88968',40), dist:1330, speed:0.00032, name:"Haumea", type:"Dwarf Planet", desc:"An elongated, rapidly-spinning dwarf planet with its own faint ring system.", ring:true, category:'dwarf' });
+const makemakeSys = createSystemBody({ r:1.9, tex:noiseTexture('#b36b42','#59321c',40), dist:1370, speed:0.00031, name:"Makemake", type:"Dwarf Planet", desc:"A bright, reddish Kuiper Belt dwarf planet rich in frozen methane and ethane.", ring:true, category:'dwarf' });
+createSystemBody({ r:1.6, tex:noiseTexture('#a8977f','#5c4c3a',30), dist:1650, speed:0.00022, name:"Sedna", type:"Dwarf Planet", desc:"An extraordinarily distant, reddish world on the edge of the inner Oort Cloud.", ring:true, category:'dwarf' });
+createSystemBody({ r:1.7, tex:noiseTexture('#c9b8a0','#6e5b45',35), dist:1580, speed:0.00024, name:"Gonggong", type:"Dwarf Planet", desc:"A reddish Kuiper Belt dwarf planet with a small moon, named after a Chinese water god.", ring:true, category:'dwarf' });
+
+// Jupiter's moons
+[["Io",1.3,26,0.045,'#d8c24a','#8a6d1f',"The most volcanically active body in the solar system, sculpted by Jupiter's immense tidal forces."],
+ ["Europa",1.2,30,0.038,'#cbd8e0','#8a9aa5',"An icy moon hiding a vast subsurface ocean — one of the most promising places to search for life."],
+ ["Ganymede",1.9,35,0.03,'#8f8577','#4a443a',"The largest moon in the solar system, bigger than Mercury, with its own magnetic field."],
+ ["Callisto",1.7,40,0.024,'#5c5346','#2a251e',"An ancient, heavily cratered moon, one of the most heavily bombarded surfaces known."],
+ ["Amalthea",0.6,22,0.06,'#8a5a3a','#4a2c18',"A small reddish inner moon, irregularly shaped and orbiting very close to Jupiter."],
+ ["Himalia",0.5,46,0.02,'#6b6258','#332e28',"A captured irregular moon orbiting far out in Jupiter's outer satellite system."]
+].forEach(m=> createSystemBody({ r:m[1], tex:noiseTexture(m[4],m[5],30), dist:m[2], speed:m[3], name:m[0], type:"Jovian Moon", desc:m[6], parent:jupiterSys.mesh, category:'moon' }));
+
+// Saturn's moons
+[["Titan",1.9,45,0.022,'#d9a552','#8a6220',"Saturn's largest moon, shrouded in a thick orange atmosphere with lakes of liquid methane."],
+ ["Enceladus",0.8,26,0.035,'#eaf3ff','#a8c4dd',"A brilliant icy moon that vents geysers of water from a hidden subsurface ocean."],
+ ["Mimas",0.6,22,0.04,'#c9c9c9','#7a7a7a',"Nicknamed the 'Death Star' moon for its enormous Herschel impact crater."],
+ ["Iapetus",0.9,55,0.016,'#ada08e','#3a3229',"A two-toned moon, one hemisphere bright ice, the other dark as coal."],
+ ["Rhea",0.85,50,0.018,'#c7c7c7','#7d7d7d',"Saturn's second-largest moon, an icy heavily cratered world."],
+ ["Dione",0.7,32,0.026,'#cfcfcf','#8a8a8a',"An icy moon with bright wispy fractures streaking across its trailing hemisphere."],
+ ["Tethys",0.7,29,0.028,'#d6d6d6','#8f8f8f',"An icy moon scarred by the giant Odysseus impact crater and Ithaca Chasma canyon."],
+ ["Hyperion",0.5,60,0.014,'#a89880','#4a3f30',"A strange sponge-textured moon that tumbles chaotically as it orbits."],
+ ["Phoebe",0.5,70,0.011,'#4a4a4a','#1c1c1c',"A dark irregular outer moon, likely a captured Kuiper Belt object."],
+ ["Pan",0.3,19,0.05,'#b0a68f','#5a5142',"A tiny walnut-shaped moon that shepherds material within Saturn's rings."],
+ ["Atlas",0.3,21,0.045,'#b8ae97','#615746',"A small ring-shepherding moon just outside Saturn's main ring system."]
+].forEach(m=> createSystemBody({ r:m[1], tex:noiseTexture(m[4],m[5],30), dist:m[2], speed:m[3], name:m[0], type:"Saturnian Moon", desc:m[6], parent:saturnSys.mesh, category:'moon' }));
+
+// Neptune's moons
+createSystemBody({ r:1.4, tex:noiseTexture('#c8d2e0','#5a6478',30), dist:26, speed:0.03, name:"Triton", type:"Neptunian Moon", desc:"A captured Kuiper Belt object orbiting backwards, with active nitrogen geysers.", parent:neptuneSys.mesh, category:'moon' });
+createSystemBody({ r:0.5, tex:noiseTexture('#8a8a8a','#3a3a3a',20), dist:42, speed:0.012, name:"Nereid", type:"Neptunian Moon", desc:"An outer moon of Neptune with one of the most eccentric orbits of any moon.", parent:neptuneSys.mesh, category:'moon' });
+
+// Pluto's moons
+createSystemBody({ r:0.9, tex:noiseTexture('#9a9a9a','#4a4a4a',25), dist:12, speed:0.04, name:"Charon", type:"Plutonian Moon", desc:"Pluto's giant companion moon, so large the two bodies orbit a shared point in space.", parent:plutoSys.mesh, category:'moon' });
+["Nix","Hydra","Kerberos","Styx"].forEach((n,i)=>{
+  createSystemBody({ r:0.3, tex:noiseTexture('#888','#444',15), dist:16+i*2.5, speed:0.02-i*0.002, name:n, type:"Plutonian Moon", desc:"One of Pluto's small outer moons, discovered by the Hubble Space Telescope.", parent:plutoSys.mesh, category:'moon' });
+});
+
+createSystemBody({ r:0.4, tex:noiseTexture('#999','#333',20), dist:8, speed:0.03, name:"Dysnomia", type:"Moon of Eris", desc:"Eris's lone known moon, named after the Greek goddess of lawlessness.", parent:erisSys.mesh, category:'moon' });
+createSystemBody({ r:0.35, tex:noiseTexture('#ddd','#999',15), dist:8, speed:0.032, name:"Hi'iaka", type:"Moon of Haumea", desc:"The larger of Haumea's two known moons, named after the Hawaiian goddess.", parent:haumeaSys.mesh, category:'moon' });
+createSystemBody({ r:0.25, tex:noiseTexture('#ccc','#888',15), dist:11, speed:0.026, name:"Namaka", type:"Moon of Haumea", desc:"Haumea's smaller moon, named after a Hawaiian water spirit.", parent:haumeaSys.mesh, category:'moon' });
+createSystemBody({ r:0.3, tex:noiseTexture('#aaa','#555',15), dist:7, speed:0.03, name:"MK2", type:"Moon of Makemake", desc:"Makemake's small, dark moon nicknamed 'MK2', a striking contrast to its bright parent.", parent:makemakeSys.mesh, category:'moon' });
+
+sunLight.position.copy(sun.position);
+
+// ============================================================
+// ASTEROID BELT — dust field + named asteroids
+// ============================================================
+(function asteroidBelt(){
+  const dustGeo = new THREE.BufferGeometry();
+  const N = 6000; const pos = new Float32Array(N*3);
+  const r = rng('asteroid-dust');
+  for(let i=0;i<N;i++){ const a=r()*Math.PI*2; const d=rangeR(r,330,420); const h=(r()-0.5)*14;
+    pos[i*3]=Math.cos(a)*d; pos[i*3+1]=h; pos[i*3+2]=Math.sin(a)*d; }
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  scene.add(new THREE.Points(dustGeo, new THREE.PointsMaterial({ color:0x9a8a70, size:1.1, transparent:true, opacity:0.55 })));
+
+  const named = [
+    ["Pallas","Rocky, heavily-cratered protoplanet, the third-largest asteroid."],
+    ["Juno","A bright, irregularly-shaped asteroid rich in silicate rock."],
+    ["Vesta","The second-largest asteroid, geologically differentiated like a planet."],
+    ["Hygiea","A dark, carbon-rich asteroid, possibly a dwarf planet candidate."],
+    ["Apollo","Namesake of the Apollo group of Earth-crossing asteroids."],
+    ["Amor","Namesake of the Amor group of near-Earth asteroids."],
+    ["Icarus","A small asteroid on an orbit that swings daringly close to the Sun."],
+    ["Geographos","One of the most elongated asteroids ever observed."],
+    ["Toutatis","A tumbling, peanut-shaped near-Earth asteroid."],
+    ["Bennu","A rubble-pile near-Earth asteroid sampled by the OSIRIS-REx mission."],
+    ["Ryugu","A diamond-shaped carbonaceous asteroid visited by Hayabusa2."],
+    ["Apophis","A near-Earth asteroid that will make an extremely close approach in 2029."],
+    ["Eros","The first asteroid ever orbited and landed on by a spacecraft."],
+    ["Ida","An elongated asteroid famous for its own tiny moon, Dactyl."],
+    ["Gaspra","The first asteroid ever imaged up close, by the Galileo probe."],
+    ["Mathilde","A dark, carbon-rich asteroid with enormous impact craters."],
+    ["Kleopatra","A bizarre dog-bone-shaped metallic asteroid."],
+    ["Davida","One of the largest and most massive main-belt asteroids."],
+    ["Interamnia","A large, dark, primitive main-belt asteroid."],
+    ["Chiron","A centaur straddling the line between asteroid and comet."],
+    ["Pholus","A reddish centaur object orbiting between Saturn and Neptune."],
+    ["Chariklo","The first minor planet discovered to have its own ring system."],
+    ["3200 Phaethon","A rock comet whose debris trail creates the Geminid meteor shower."]
+  ];
+  const r2 = rng('asteroid-named');
+  named.forEach(a=>{
+    const size = rangeR(r2,1.1,2.2);
+    const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(size,0), new THREE.MeshStandardMaterial({ color:0x8a7a63, roughness:1, flatShading:true }));
+    const ang = r2()*Math.PI*2; const dist = rangeR(r2,320,430);
+    mesh.position.set(Math.cos(ang)*dist, (r2()-0.5)*20, Math.sin(ang)*dist);
+    mesh.userData = { name:a[0], type:"Asteroid", desc:a[1], category:'asteroid' };
+    scene.add(mesh); interactables.push(mesh);
+    if(a[0]==="Ida"){
+      const dactyl = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4,0), new THREE.MeshStandardMaterial({color:0x77685a, flatShading:true}));
+      dactyl.userData = { name:"Dactyl", type:"Moon of Ida", desc:"The tiny moon of asteroid Ida — the first satellite ever discovered around an asteroid.", category:'moon' };
+      mesh.add(dactyl); dactyl.position.set(4,1,0); interactables.push(dactyl);
+    }
+  });
+})();
+
+// ============================================================
+// COMETS — nucleus + dynamic tail (always points away from Sun)
+// ============================================================
+const comets = [];
+(function buildComets(){
+  const list = [
+    ["Halley's Comet","The most famous periodic comet, visible from Earth every ~76 years."],
+    ["Comet Hale-Bopp","One of the brightest comets of the 20th century, visible for 18 months."],
+    ["Comet Shoemaker-Levy 9","Broke apart and spectacularly collided with Jupiter in 1994."],
+    ["Comet Encke","The periodic comet with the shortest known orbital period."],
+    ["Comet Biela","A comet that famously split in two before disintegrating entirely."],
+    ["Comet Faye","A periodic comet discovered in 1843, orbiting within the asteroid belt's reach."],
+    ["Comet Borrelly","Visited by the Deep Space 1 probe, revealing a dark peanut-shaped nucleus."],
+    ["Comet Hyakutake","A stunningly bright comet that passed remarkably close to Earth in 1996."],
+    ["Comet Swift-Tuttle","Parent body of the annual Perseid meteor shower."],
+    ["Comet Tempel 1","Struck by NASA's Deep Impact probe to study its interior composition."],
+    ["Comet Wild 2","Sampled by the Stardust mission, returning dust to Earth."],
+    ["Comet Hartley 2","A small hyperactive comet visited by the EPOXI mission."],
+    ["Comet Churyumov-Gerasimenko","Orbited and landed on by the historic Rosetta/Philae mission."],
+    ["Comet West","A spectacular naked-eye comet that broke into four fragments in 1976."],
+    ["Comet Ikeya-Seki","A brilliant sungrazing comet visible in daylight in 1965."],
+    ["Caesar's Comet","A brilliant daylight comet seen in ancient Rome in 44 BC."],
+    ["Comet Lovejoy","A hardy sungrazing comet that survived a close pass by the Sun."],
+    ["Comet ISON","A sungrazer that famously disintegrated during its 2013 solar approach."],
+    ["Comet Neowise","A dazzling naked-eye comet that lit up 2020's night skies."],
+    ["Comet Leonard","The brightest comet of 2021, making its only visit to the inner solar system."]
+  ];
+  const r = rng('comets');
+  list.forEach(cm=>{
+    const nucleus = new THREE.Mesh(new THREE.IcosahedronGeometry(1.6,0), new THREE.MeshStandardMaterial({ color:0xdff3ff, emissive:0x224466, emissiveIntensity:0.4, flatShading:true }));
+    const pos = spherePoint(r, 500, 2200); pos.y *= 0.5;
+    nucleus.position.copy(pos);
+    nucleus.userData = { name:cm[0], type:"Comet", desc:cm[1], category:'comet' };
+    scene.add(nucleus); interactables.push(nucleus);
+
+    const tailN = 400;
+    const tGeo = new THREE.BufferGeometry();
+    const tPos = new Float32Array(tailN*3);
+    tGeo.setAttribute('position', new THREE.BufferAttribute(tPos,3));
+    const tMat = new THREE.PointsMaterial({ color:0x9fd8ff, size:1.4, transparent:true, opacity:0.55, blending:THREE.AdditiveBlending, depthWrite:false });
+    const tail = new THREE.Points(tGeo, tMat);
+    scene.add(tail);
+    comets.push({ nucleus, tail, seed:r() });
+  });
+})();
+
+// ============================================================
+// GENERIC CATEGORY FIELD BUILDER (for the many remaining lists)
+// ============================================================
+const categoryMeta = {}; // key -> {label, color, count}
+function registerCat(key, label, color){ if(!categoryMeta[key]) categoryMeta[key] = { label, color, count:0, group:new THREE.Group() , visible:true}; scene.add(categoryMeta[key].group); return categoryMeta[key]; }
+
+function descFor(name, sentences, r){ return pick(r, sentences).replace('{n}', name); }
+
+// ---- Bright named stars ----
+(function buildStars(){
+  const cat = registerCat('star2','Bright Stars',0xfff2c8);
+  const list = ["Sirius","Canopus","Arcturus","Alpha Centauri A","Vega","Rigel","Procyon","Achernar","Betelgeuse","Hadar (Agena)","Capella A","Altair","Aldebaran","Spica","Antares","Pollux","Fomalhaut","Deneb","Mimosa","Barnard's Star"];
+  const flavor = ["{n} shines among the brightest stars visible from Earth, a beacon in the night sky.","{n} is a massive, luminous star whose light has guided navigators and astronomers for millennia.","{n} burns with immense energy, offering a glimpse into the life cycle of stars far larger than our Sun.","{n} anchors its constellation, a familiar landmark across the celestial sphere."];
+  const r = rng('stars');
+  const colors=[0xfff2c8,0xbfd4ff,0xffe0b0,0xffffff,0xffc7a0];
+  list.forEach(n=>{
+    const pos = spherePoint(r,600,3200);
+    const col = pick(r,colors);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(rangeR(r,2.5,5),24,24), new THREE.MeshBasicMaterial({ color:col }));
+    mesh.position.copy(pos);
+    const glow = glowSprite(col,200); glow.scale.set(40,40,1); mesh.add(glow);
+    mesh.userData = { name:n, type:"Star", desc:descFor(n,flavor,r), category:'star2' };
+    cat.group.add(mesh); interactables.push(mesh); cat.count++;
+  });
+})();
+
+// ---- Exoplanets (mini host-star systems) ----
+(function buildExoplanets(){
+  const cat = registerCat('exoplanet','Exoplanets',0x7fffb0);
+  const list = ["51 Pegasi b","Proxima Centauri b","Kepler-186f","HD 189733b","55 Cancri e","Gliese 581 c","Spe (14 Andromedae b)","Arion (18 Delphini b)","Veritate (14 Andromedae c)","Musica (18 Delphini b)","Fafnir (42 Draconis b)","Chalawan (47 Ursae Majoris b)","Dagon (Fomalhaut b)","Tondra (HD 148427 b)","Banksia (WASP-19b)","Makombé (WASP-69b)","Proxima Centauri d"];
+  const flavor = ["{n} orbits a distant star, one of thousands of worlds confirmed beyond our solar system.","{n} offers tantalizing clues about the diversity of planets that exist across the galaxy.","{n} was detected through the subtle wobble or dimming it causes in its host star.","{n} circles a sun far from our own, a reminder of how many worlds remain unexplored."];
+  const r = rng('exoplanets');
+  list.forEach(n=>{
+    const pos = spherePoint(r,2500,7000);
+    const starCol = pick(r,[0xffcc88,0xffe9c7,0x9db8ff,0xff8866]);
+    const star = new THREE.Mesh(new THREE.SphereGeometry(3,16,16), new THREE.MeshBasicMaterial({color:starCol}));
+    star.position.copy(pos);
+    const glow = glowSprite(starCol,180); glow.scale.set(28,28,1); star.add(glow);
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(1.2,16,16), new THREE.MeshStandardMaterial({ color: pick(r,[0x3366aa,0x996644,0x88aa66,0xaa6688]) }));
+    planet.position.set(rangeR(r,6,10),0,0);
+    star.add(planet);
+    star.userData = { name:n, type:"Exoplanet System", desc:descFor(n,flavor,r), category:'exoplanet' };
+    cat.group.add(star); interactables.push(star); cat.count++;
+  });
+})();
+
+// ---- Galaxies (kept & enhanced) ----
+const galaxyList = [
+["Andromeda Galaxy (M31)","Spiral Galaxy","Our majestic galactic neighbor, holding over a trillion stars, on a slow collision course with the Milky Way.",-3500,800,-4000,900,0xff88cc,0x00ffff],
+["Milky Way","Barred Spiral","Our home galaxy, containing billions of star systems including our own Sun.",0,0,0,1100,0xffffff,0x3388ff],
+["Triangulum Galaxy (M33)","Spiral Galaxy","The third-largest member of our Local Group of galaxies.",2800,400,-3200,700,0xaaddff,0x4444ff],
+["Whirlpool Galaxy (M51)","Grand Design Spiral","A famous interacting spiral galaxy locked in a gravitational dance with a companion.",-2200,-900,3100,650,0x66ffcc,0x0055ff],
+["Sombrero Galaxy (M104)","Lenticular Galaxy","Marked by an extraordinarily prominent dust lane resembling a wide-brimmed hat.",4100,-400,2200,750,0xffaa44,0xaa2200],
+["Black Eye Galaxy (M64)","Spiral Galaxy","Notable for a spectacular dark band of absorbing cosmic dust across its bright core.",-1500,1500,-2800,600,0xcccccc,0x2244aa],
+["Cigar Galaxy (M82)","Starburst Galaxy","A galaxy undergoing an intense burst of rapid star formation.",3200,1200,-1800,550,0xff5522,0x881100],
+["Bode's Galaxy (M81)","Grand Design Spiral","A stunning, tightly-wound spiral galaxy in Ursa Major.",3000,1100,-1900,700,0xffffff,0x1144aa],
+["Sunflower Galaxy (M63)","Spiral Galaxy","A flocculent spiral galaxy with a brilliant, flower-like pattern of arms.",-2700,-600,-2500,600,0xeeccaa,0x335588],
+["Pinwheel Galaxy (M101)","Spiral Galaxy","An enormous face-on spiral, one of the largest disk galaxies known.",1900,-1800,3800,800,0x88ffff,0x002288],
+["Southern Pinwheel Galaxy (M83)","Barred Spiral","A prominent face-on barred spiral galaxy rich in star-forming regions.",-1200,-1500,-4200,650,0xff77aa,0x220055],
+["Sculptor Galaxy (Silver Coin Galaxy)","Starburst Galaxy","A bright, edge-on galaxy undergoing vigorous star birth in its core.",2500,1900,2900,600,0xddddff,0x5566aa],
+["Large Magellanic Cloud (LMC)","Satellite Galaxy","A prominent irregular satellite galaxy orbiting the Milky Way, visible from the southern hemisphere.",800,-600,1200,400,0xffffff,0x8888aa],
+["Small Magellanic Cloud (SMC)","Dwarf Irregular","A companion dwarf galaxy to our home system, tidally linked to the LMC.",1100,-500,1400,300,0xeeeeff,0x777799],
+["Tadpole Galaxy","Interrupted Spiral","A distorted galaxy with a long tidal tail resulting from a past collision.",-4500,1200,1500,500,0x44aaff,0x112255],
+["Cartwheel Galaxy","Ring Galaxy","A striking ring-shaped galaxy formed by a high-speed head-on collision.",4800,-1500,-2100,600,0xff44aa,0x330055],
+["Cocoon Galaxy","Peculiar Galaxy","A complex, actively interacting galactic structure.",-3800,-2200,2100,500,0xffcc88,0x553311],
+["Comet Galaxy","Disrupted Spiral","A galaxy with a stripped gas tail shaped by cluster environmental pressure.",5200,800,1200,450,0x88ffee,0x004455],
+["Condor Galaxy (NGC 6872)","Super Spiral","One of the largest known barred spiral galaxies in the universe.",-6000,2500,-5000,1200,0xffffff,0x2255cc],
+["Needle Galaxy","Edge-on Spiral","A striking, needle-thin edge-on galactic disc.",3800,-2800,-3200,650,0xffeedd,0x445577],
+["Hidden Galaxy","Obscured Disc","A galaxy largely hidden behind the Milky Way's own dust lanes.",-4200,3100,2200,600,0xddddff,0x223366],
+["Hoag's Object","Ring Galaxy","An exquisite and rare near-perfect ring galaxy.",5500,1500,-4500,500,0xffffaa,0x333333],
+["Mayall's Object","Colliding Ring","A ring-shaped galaxy resulting from a head-on galactic collision.",-5100,-1800,-3800,550,0xff8844,0x441100],
+["Wolf-Lundmark-Melotte (WLM)","Dwarf Galaxy","An isolated, remote member of our Local Group.",-2100,2100,4100,400,0xaabbcc,0x223344],
+["Peekaboo Galaxy","Compact Dwarf","An extremely metal-poor, isolated blue compact galaxy.",4100,3200,-1200,350,0x88ffff,0x004488],
+["Centaurus A (NGC 5128)","Active Lenticular","A famous, powerful radio galaxy with a prominent dust belt.",-2900,-1900,-3100,700,0xffaa66,0x331100],
+["Bear Paw Galaxy","Interacting Pair","A distinctive interacting galactic pair.",3400,-3400,2100,500,0xccddff,0x113355],
+["Butterfly Galaxies","Interacting Pair","Two galaxies whose winged morphology comes from mutual gravitational tides.",-3100,3400,-2100,550,0xffaacc,0x440033],
+["Circinus Galaxy","Active Seyfert","An active spiral galaxy hidden near the Milky Way's own plane.",1800,-4100,-3100,500,0xffcc99,0x553311],
+["Coma Pinwheel Galaxy (M99)","Grand Design Spiral","An asymmetric grand-design spiral in the Coma Berenices cluster.",-1200,4200,2500,600,0xaaffcc,0x004433],
+["Eye of Sauron (NGC 4151)","Seyfert Galaxy","An active galactic nucleus with a striking glowing eye-like profile.",4200,-1200,3100,600,0xffaa88,0x551100],
+["Hockey Stick Galaxies","Interacting Pair","A pair of distorted galaxies locked in a gravitational dance.",-4800,-2500,1500,550,0xddeeff,0x224466],
+["Knife Edge Galaxy (NGC 5907)","Edge-on Spiral","An immaculate, razor-thin edge-on spiral with faint stellar loops.",3100,4100,-2200,600,0xffffff,0x334466],
+["Lindsay-Shapley Ring","Colliding Ring","A massive ring structure formed by high-speed galactic impact.",-5200,1500,4200,650,0xff77ff,0x330044],
+["Little Sombrero Galaxy (NGC 7814)","Edge-on Spiral","A miniature analog to the famous Sombrero Galaxy.",2100,-5100,3100,550,0xffccaa,0x442200],
+["Paramecium Galaxy (NGC 7448)","Peculiar Spiral","A distorted spiral galaxy with peculiar, asymmetric arms.",-3400,-4200,-2100,500,0xccffee,0x004444],
+["Porpoise Galaxy (Penguin Galaxy)","Interacting Pair","A dramatic tidal interaction forming bird-like contours.",4100,2800,3400,600,0xff99bb,0x440022],
+["Sculptor Pinwheel Galaxy (NGC 300)","Spiral Galaxy","A serene, nearby spiral galaxy in the constellation Sculptor.",-2500,-3100,-4100,550,0xaaddff,0x003366],
+["Spider Galaxy (NGC 5829)","Interacting Pair","An asymmetric spiral galaxy interacting with a companion.",4500,-3100,-2500,500,0xffbbcc,0x551133],
+["Spiderweb Galaxy","Protocluster Core","A massive active galaxy anchoring the center of a forming protocluster.",-4100,4100,-1500,650,0xffaa44,0x552200],
+["Starfish Galaxy","Interacting System","A complex, multi-armed tidal galaxy system.",3100,1500,-5200,600,0x88ffff,0x003388],
+["Surfboard Galaxy (M108)","Edge-on Spiral","A flocculent, edge-on spiral galaxy in Ursa Major.",-2100,-4800,-2200,550,0xddddff,0x224455],
+["Topsy Turvy Galaxy","Distorted System","A tidally-disrupted, chaotic galactic configuration.",5100,-1200,2500,550,0xff77aa,0x440033],
+["Alcyoneus","Giant Radio Galaxy","One of the largest known galaxies, with radio jets spanning millions of light-years.",-6500,3100,-4200,1400,0x88ddff,0x002266],
+["Andromeda I, II, III, IV","Satellite Group","A cluster of small satellite dwarf galaxies orbiting Andromeda.",-3800,1100,-4500,450,0xeeccff,0x331144],
+["Ambartsumian's Knot (NGC 3561)","Interacting Galaxy","A chain of violent star-forming knots and collision debris.",4200,-2500,-3100,500,0xff6644,0x661100],
+["Antennae Galaxies (NGC 4038/9)","Interacting Grand Pair","Iconic overlapping colliding galaxies with sweeping tidal tails.",-2500,-2500,3400,700,0xff55aa,0x550022],
+["Aquarius Dwarf (DDO 210)","Dwarf Irregular","A faint, isolated dwarf galaxy in the constellation Aquarius.",1500,3800,3200,350,0xbbccdd,0x223344],
+["Arp's Galaxy","Peculiar System","A cataloged peculiar interacting galaxy system.",-4200,-3200,-2800,500,0xff8888,0x551111],
+["Barnard's Galaxy (NGC 6822)","Barred Irregular","A nearby irregular galaxy rich in star-forming nebulae.",-1500,2800,-3100,450,0xffcccc,0x331122],
+["Bedin I","Dwarf Spheroidal","An isolated, ancient dwarf spheroidal galaxy.",3800,2100,4100,400,0xccddee,0x223355],
+["Cosmos Redshift 7","High-Redshift Galaxy","An exceptionally luminous, primordial galaxy from the early universe.",7500,4200,-6500,800,0x88ffff,0x0044cc],
+["Hanny's Voorwerp","Ionized Gas Cloud","A mysterious, glowing green cosmic gas cloud illuminated by a quasar's afterglow.",-3100,4500,2100,450,0x44ffaa,0x004422]
+];
+(function buildGalaxies(){
+  const cat = registerCat('galaxy','Galaxies',0x88bbff);
+  galaxyList.forEach(g=>{
+    const pCount = 9000;
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(pCount*3); const col = new Float32Array(pCount*3);
+    const c1 = new THREE.Color(g[7]), c2 = new THREE.Color(g[8]);
+    for(let i=0;i<pCount;i++){
+      const rr = Math.random()*g[6]; const spin = rr*0.012; const branch=((i%3)/3)*Math.PI*2;
+      pos[i*3]=Math.cos(branch+spin)*rr+(Math.random()-0.5)*90;
+      pos[i*3+1]=(Math.random()-0.5)*60*(1-rr/g[6]*0.6);
+      pos[i*3+2]=Math.sin(branch+spin)*rr+(Math.random()-0.5)*90;
+      const mixed=c1.clone().lerp(c2, rr/g[6]);
+      col[i*3]=mixed.r; col[i*3+1]=mixed.g; col[i*3+2]=mixed.b;
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col,3));
+    const mesh = new THREE.Points(geo, new THREE.PointsMaterial({ size:2.1, vertexColors:true, blending:THREE.AdditiveBlending, transparent:true, opacity:0.88 }));
+    mesh.position.set(g[3],g[4],g[5]);
+    cat.group.add(mesh);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(g[6]*0.6,12,12), new THREE.MeshBasicMaterial({visible:false}));
+    hit.position.set(g[3],g[4],g[5]);
+    hit.userData = { name:g[0], type:g[1], desc:g[2], category:'galaxy' };
+    cat.group.add(hit); interactables.push(hit); cat.count++;
+  });
+})();
+
+// ---- Galaxy Clusters ----
+(function buildGalaxyClusters(){
+  const cat = registerCat('cluster_gal','Galaxy Clusters',0xffe08a);
+  const list = [
+    ["Virgo Cluster","Our nearest large galaxy cluster, containing over a thousand member galaxies."],
+    ["Coma Cluster","A massive, dense cluster in Coma Berenices that helped reveal dark matter's existence."],
+    ["Fornax Cluster","The second-richest cluster within our local cosmic neighborhood."],
+    ["Perseus Cluster","A colossal cluster whose hot gas emits eerie sound-wave ripples in X-rays."],
+    ["Hercules Cluster","An irregular, still-forming cluster of interacting galaxies."],
+    ["Abell 1689","Famous for spectacular gravitational lensing arcs bending light around it."],
+    ["Bullet Cluster","Two colliding clusters providing the strongest direct evidence for dark matter."],
+    ["Local Group","Our own small cluster of ~80 galaxies, including the Milky Way and Andromeda."]
+  ];
+  const r = rng('galcluster');
+  list.forEach(c=>{
+    const pos = spherePoint(r,9000,16000);
+    const pCount=4000; const geo=new THREE.BufferGeometry(); const pos2=new Float32Array(pCount*3);
+    for(let i=0;i<pCount;i++){ const v=spherePoint(r,0,700); pos2[i*3]=v.x; pos2[i*3+1]=v.y*0.6; pos2[i*3+2]=v.z; }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos2,3));
+    const mesh = new THREE.Points(geo, new THREE.PointsMaterial({ color:0xffe08a, size:3, transparent:true, opacity:0.5, blending:THREE.AdditiveBlending }));
+    mesh.position.copy(pos);
+    cat.group.add(mesh);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(400,12,12), new THREE.MeshBasicMaterial({visible:false}));
+    hit.position.copy(pos);
+    hit.userData = { name:c[0], type:"Galaxy Cluster", desc:c[1], category:'cluster_gal' };
+    cat.group.add(hit); interactables.push(hit); cat.count++;
+  });
+})();
+
+// ---- Star Clusters (open + globular) ----
+(function buildStarClusters(){
+  const cat = registerCat('cluster_star','Star Clusters',0xd0ffea);
+  const open = [
+    ["Pleiades (M45)","A dazzling young open cluster wrapped in blue reflection nebulosity."],
+    ["Hyades","The nearest open cluster to Earth, marking the face of Taurus the bull."],
+    ["Beehive Cluster (M44)","A large, bright open cluster visible to the naked eye as a hazy patch."],
+    ["Butterfly Cluster (M6)","An open cluster whose stars form a butterfly-like pattern."],
+    ["Ptolemy's Cluster (M7)","A bright naked-eye cluster known since antiquity."],
+    ["Wild Duck Cluster (M11)","A dense, richly-populated open cluster resembling a flock in flight."],
+    ["Jewel Box (NGC 4755)","A colorful young cluster prized for its vividly contrasting star colors."],
+    ["Double Cluster (NGC 869 / 884)","Two neighboring open clusters visible together in Perseus."],
+    ["Caroline's Cluster (NGC 2360)","An open cluster discovered by astronomer Caroline Herschel."],
+    ["Caroline's Rose (NGC 7789)","A dense open cluster with delicate looping chains of stars."],
+    ["Brocchi's Cluster (Coathanger)","A whimsical asterism cluster shaped like a coat hanger."],
+    ["Blanco 1","A loose open cluster far from the galactic plane in Sculptor."],
+    ["Christmas Tree Cluster (NGC 2264)","A festive young cluster embedded in glowing nebulosity."]
+  ];
+  const glob = [
+    ["Omega Centauri","The largest and brightest globular cluster orbiting the Milky Way."],
+    ["47 Tucanae","One of the brightest and densest globular clusters in the sky."],
+    ["M2","A large, ancient globular cluster in the constellation Aquarius."],
+    ["M3","One of the finest globular clusters, containing half a million stars."],
+    ["M5","An ancient, spectacular globular cluster in Serpens."],
+    ["M13 (Great Hercules Cluster)","The most famous globular cluster in the northern sky."],
+    ["M15","A dense globular cluster thought to harbor a central black hole."],
+    ["M22","One of the nearest and brightest globular clusters to Earth."],
+    ["M92","An ancient, tightly-bound globular cluster in Hercules."]
+  ];
+  const r = rng('starclusters');
+  function place(item, isGlobular){
+    const pos = spherePoint(r, isGlobular?1800:700, isGlobular?4200:2200);
+    const n = isGlobular?3000:900; const spread = isGlobular?55:90;
+    const geo = new THREE.BufferGeometry(); const p = new Float32Array(n*3);
+    for(let i=0;i<n;i++){ const v = isGlobular? spherePoint(r,0,spread) : spherePoint(r,0,spread); p[i*3]=v.x; p[i*3+1]=v.y; p[i*3+2]=v.z; }
+    geo.setAttribute('position', new THREE.BufferAttribute(p,3));
+    const mesh = new THREE.Points(geo, new THREE.PointsMaterial({ color: isGlobular?0xffe9c0:0xbfe9ff, size:isGlobular?1.6:2.4, transparent:true, opacity:0.85, blending:THREE.AdditiveBlending }));
+    mesh.position.copy(pos); cat.group.add(mesh);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(spread*0.9,12,12), new THREE.MeshBasicMaterial({visible:false}));
+    hit.position.copy(pos);
+    hit.userData = { name:item[0], type: isGlobular?"Globular Star Cluster":"Open Star Cluster", desc:item[1], category:'cluster_star' };
+    cat.group.add(hit); interactables.push(hit); cat.count++;
+  }
+  open.forEach(o=>place(o,false));
+  glob.forEach(g=>place(g,true));
+})();
+
+// ---- Nebulae (full list, particle clouds) ----
+(function buildNebulae(){
+  const cat = registerCat('nebula','Nebulae',0xff8fd0);
+  const list = [
+    ["Orion Nebula (M42)","Emission Nebula","The most famous stellar nursery, visible to the naked eye in Orion's sword.",0xff5588],
+    ["Crab Nebula (M1)","Supernova Remnant","The expanding debris field of the historic supernova SN 1054.",0x66ffff],
+    ["Lagoon Nebula (M8)","Emission Nebula","A vast interstellar cloud hosting active young star clusters.",0xff3355],
+    ["Ring Nebula (M57)","Planetary Nebula","A glowing shell of gas shed by a dying, Sun-like star.",0x33ffaa],
+    ["Eagle Nebula (M16)","Emission Nebula","Home to the iconic 'Pillars of Creation' star-forming towers.",0xffaa22],
+    ["Hourglass Nebula","Planetary Nebula","A striking hourglass-shaped shell around a dying star."],
+    ["Trifid Nebula","Emission/Reflection Nebula","A nebula split into three lobes by dark dust lanes.",0xff6699],
+    ["Swan Nebula","Emission Nebula","Also known as the Omega Nebula, shaped like a swimming swan.",0xff88aa],
+    ["Wizard Nebula","Emission Nebula","A star-forming region resembling a robed figure.",0xaa88ff],
+    ["Barnard's Loop","Emission Nebula","A vast arc of ionized gas encircling much of the Orion constellation.",0xff5577],
+    ["Ant Nebula","Planetary Nebula","A bipolar planetary nebula resembling an ant's body.",0x88ffcc],
+    ["Blinking Planetary Nebula","Planetary Nebula","A nebula whose central star appears to blink in small telescopes.",0x66ddff],
+    ["Blue Flash Nebula","Planetary Nebula","A compact nebula with a striking blue hue.",0x4477ff],
+    ["Blue Horsehead Nebula","Reflection Nebula","A blue reflection nebula sculpted into a horse-head silhouette.",0x3366cc],
+    ["Barnard's Merope Nebula","Reflection Nebula","A wispy reflection nebula illuminated by the star Merope.",0xaad4ff],
+    ["Bat Nebula","Reflection Nebula","A dark, wing-shaped nebula near the Pleiades.",0x5555aa],
+    ["Bean Nebula","Planetary Nebula","A compact, bean-shaped planetary nebula.",0x77cc99],
+    ["Little Dumbbell Nebula (M76)","Planetary Nebula","A smaller cousin of the famous Dumbbell Nebula.",0xff99cc],
+    ["Horsehead Nebula (Barnard 33)","Dark Nebula","A dark silhouette of dust resembling a horse's head.",0xaa3322],
+    ["Flame Nebula","Emission Nebula","A fiery-looking star-forming region near Orion's Belt.",0xff7733],
+    ["Rosette Nebula","Emission Nebula","A rose-shaped ring of gas surrounding a cluster of hot young stars.",0xff5566],
+    ["Cone Nebula","Emission/Dark Nebula","A dark, cone-shaped pillar of gas and dust.",0x996655],
+    ["Heart Nebula (IC 1805)","Emission Nebula","A vast heart-shaped cloud of ionized hydrogen.",0xff3366],
+    ["Soul Nebula (IC 1848)","Emission Nebula","A companion nebula to the Heart Nebula, rich with star formation.",0xff5588],
+    ["California Nebula (NGC 1499)","Emission Nebula","A long faint nebula resembling the outline of California.",0xdd4466],
+    ["North America Nebula (NGC 7000)","Emission Nebula","A nebula whose shape closely resembles the North American continent.",0xff6644],
+    ["Pelican Nebula (IC 5070)","Emission Nebula","A nebula shaped like a pelican, neighboring the North America Nebula.",0xff7755],
+    ["Veil Nebula","Supernova Remnant","An expansive shockwave filament left behind by an ancient supernova.",0x55aaff],
+    ["Helix Nebula","Planetary Nebula","A strikingly close planetary nebula nicknamed the 'Eye of God'.",0x00ffcc],
+    ["Boomerang Nebula","Planetary Nebula","The coldest known place in the universe, colder than the cosmic background.",0x88aaff],
+    ["Red Rectangle Nebula","Protoplanetary Nebula","A rare nebula with an unusual boxy, X-shaped structure.",0xff5533],
+    ["Ghost Nebula (NGC 2080)","Emission Nebula","A ghostly star-forming region within the Large Magellanic Cloud.",0xccccff],
+    ["Monkey Head Nebula (NGC 2174)","Emission Nebula","A star-forming region resembling a monkey's head in profile.",0xff8866],
+    ["Seagull Nebula (IC 2177)","Emission Nebula","A wide nebula complex shaped like a seagull in flight.",0xff6688],
+    ["Thor's Helmet (NGC 2359)","Emission Nebula","A helmet-shaped bubble carved by a massive Wolf-Rayet star's winds.",0x3388ff],
+    ["Medusa Nebula (Abell 21)","Planetary Nebula","An aging planetary nebula with serpentine filaments.",0x66ff99],
+    ["Eskimo Nebula (NGC 2392)","Planetary Nebula","A nebula resembling a face surrounded by a fur parka hood.",0xaaffee],
+    ["Owl Nebula (M97)","Planetary Nebula","A planetary nebula with two dark 'eyes' resembling an owl's face.",0x88ffaa],
+    ["Saturn Nebula (NGC 7009)","Planetary Nebula","A nebula with faint extensions resembling Saturn's rings.",0x66ccff],
+    ["Cat's Eye Nebula (NGC 6543)","Planetary Nebula","One of the most complex planetary nebulae, with intricate nested shells.",0x33ddaa],
+    ["Butterfly Nebula (M2-9)","Planetary Nebula","A striking bipolar nebula shaped like a butterfly's wings.",0xff88bb],
+    ["Twin Jet Nebula (M2-9)","Bipolar Planetary Nebula","A nebula with symmetric jets streaming from a dying binary star.",0xff77cc],
+    ["Coalsack Nebula","Dark Nebula","A prominent dark nebula visible to the naked eye near the Southern Cross.",0x221122],
+    ["Bok Globules","Dark Nebula","Dense, isolated dark clouds where new stars are quietly forming.",0x1a1a2a]
+  ];
+  const r = rng('nebulae');
+  list.forEach(n=>{
+    const color = n[3] || 0xaa88ff;
+    const pos = spherePoint(r, 400, 5500);
+    const geo = new THREE.BufferGeometry(); const N=2600; const p = new Float32Array(N*3);
+    for(let i=0;i<N;i++){ p[i*3]=(r()-0.5)*260; p[i*3+1]=(r()-0.5)*180; p[i*3+2]=(r()-0.5)*260; }
+    geo.setAttribute('position', new THREE.BufferAttribute(p,3));
+    const mesh = new THREE.Points(geo, new THREE.PointsMaterial({ color, size:6, transparent:true, opacity:0.38, blending:THREE.AdditiveBlending }));
+    mesh.position.copy(pos); cat.group.add(mesh);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(110,12,12), new THREE.MeshBasicMaterial({visible:false}));
+    hit.position.copy(pos);
+    hit.userData = { name:n[0], type:n[1], desc:n[2], category:'nebula' };
+    cat.group.add(hit); interactables.push(hit); cat.count++;
+  });
+})();
+
+// ---- Black Holes ----
+(function buildBlackHoles(){
+  const cat = registerCat('blackhole','Black Holes',0xff5544);
+  const list = [
+    ["Cygnus X-1","Stellar Black Hole","The first confirmed stellar-mass black hole ever discovered.",1500,300,-1500,0x00ffff],
+    ["Sagittarius A*","Supermassive Black Hole","The supermassive black hole anchoring the center of our own Milky Way.",0,0,0,0xff5500],
+    ["M87*","Supermassive Black Hole","The first black hole ever directly imaged, by the Event Horizon Telescope.",-4000,1200,-4500,0xffaa00],
+    ["Pōwehi","Supermassive Black Hole","The Hawaiian cultural name given to the M87 supermassive black hole.",-3950,1200,-4500,0xff8800],
+    ["TON 618","Ultra-Massive Black Hole","One of the most massive black holes ever discovered.",7000,3000,-7000,0xff2200],
+    ["Gaia BH1","Stellar Black Hole","The closest known stellar-mass black hole to our solar system.",300,150,-400,0x00aaff],
+    ["GW190521","Intermediate Black Hole","Source of the first confirmed intermediate-mass black hole merger.",2500,-1500,2800,0xff00aa],
+    ["UHZ1","Primordial Supermassive Black Hole","The earliest and most distant supermassive black hole yet detected.",8000,4000,-8000,0xffffff]
+  ];
+  list.forEach(bh=>{
+    const group = new THREE.Group(); group.position.set(bh[3],bh[4],bh[5]); cat.group.add(group);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(85,16,16), new THREE.MeshBasicMaterial({visible:false}));
+    hit.userData = { name:bh[0], type:bh[1], desc:bh[2], category:'blackhole' };
+    group.add(hit); interactables.push(hit); cat.count++;
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(25,32,32), new THREE.MeshBasicMaterial({color:0x000000})));
+    const disk = new THREE.Mesh(new THREE.RingGeometry(30,95,80), new THREE.MeshBasicMaterial({ color:bh[6], side:THREE.DoubleSide, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending }));
+    disk.rotation.x = Math.PI/2; group.add(disk);
+    spinables.push({ mesh:disk, speed:0.02 });
+    const flare = glowSprite(bh[6], 256); flare.scale.set(140,140,1); group.add(flare);
+  });
+})();
+
+// ---- Supernova Remnants (pulsing expanding shells) ----
+const remnants = [];
+(function buildRemnants(){
+  const cat = registerCat('remnant','Supernova Remnants',0x9fffea);
+  const list = [
+    ["Vela Supernova Remnant","The expanding shell of a supernova that exploded roughly 11,000 years ago."],
+    ["Tycho's Supernova Remnant (SN 1572)","The remnant of a supernova recorded and studied by Tycho Brahe."],
+    ["Kepler's Supernova Remnant (SN 1604)","The remnant of the last supernova observed in our galaxy with the naked eye."],
+    ["Gum Nebula","An enormous, faint emission nebula thought to be an ancient supernova remnant."],
+    ["Cassiopeia A (Cas A)","One of the brightest radio sources in the sky, a young supernova remnant."]
+  ];
+  const r = rng('remnants');
+  list.forEach(n=>{
+    const pos = spherePoint(r,1200,4800);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(45,24,24), new THREE.MeshBasicMaterial({ color:0x9fffea, wireframe:true, transparent:true, opacity:0.5 }));
+    mesh.position.copy(pos); cat.group.add(mesh);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(55,12,12), new THREE.MeshBasicMaterial({visible:false}));
+    hit.position.copy(pos);
+    hit.userData = { name:n[0], type:"Supernova Remnant", desc:n[1], category:'remnant' };
+    cat.group.add(hit); interactables.push(hit); cat.count++;
+    remnants.push({ mesh, phase:r()*Math.PI*2 });
+  });
+})();
+
+// ---- Supernovae (historical explosion events) ----
+(function buildSupernovae(){
+  const cat = registerCat('supernova','Historical Supernovae',0xffffff);
+  const list = [
+    ["SN 1054","The supernova that created the Crab Nebula, recorded by astronomers across the world."],
+    ["SN 1572","Tycho's Supernova — a bright stellar explosion that reshaped ideas of an unchanging heaven."],
+    ["SN 1604","Kepler's Supernova — the most recent supernova confirmed visible in our own galaxy."],
+    ["SN 1987A","The nearest observed supernova in centuries, in the Large Magellanic Cloud."],
+    ["SN 1993J","A well-studied supernova in the galaxy M81."],
+    ["SN 2006gy","One of the most luminous and energetic supernovae ever recorded."],
+    ["SN 2011fe","A nearby, extensively studied Type Ia supernova in M101."],
+    ["SN 2014J","A supernova in M82, one of the closest of its type in decades."]
+  ];
+  const r = rng('supernovae');
+  list.forEach(n=>{
+    const pos = spherePoint(r,1200,5200);
+    const glow = glowSprite(0xffffff, 220); glow.scale.set(30,30,1); glow.position.copy(pos);
+    cat.group.add(glow);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(14,10,10), new THREE.MeshBasicMaterial({visible:false}));
+    hit.position.copy(pos);
+    hit.userData = { name:n[0], type:"Historical Supernova", desc:n[1], category:'supernova' };
+    cat.group.add(hit); interactables.push(hit); cat.count++;
+  });
+})();
+
+// ---- Pulsars (rotating lighthouse beams) ----
+const pulsars = [];
+(function buildPulsars(){
+  const cat = registerCat('pulsar','Pulsars',0xbfffff);
+  const list = [
+    ["Crab Pulsar","A rapidly-spinning neutron star at the heart of the Crab Nebula."],
+    ["Vela Pulsar","One of the brightest pulsars in the gamma-ray sky."],
+    ["Geminga","A nearby pulsar with a whimsical name, faint in visible light but bright in gamma rays."],
+    ["PSR B1919+21","The very first pulsar ever discovered, in 1967."],
+    ["PSR J0437-4715","The closest known millisecond pulsar to Earth."],
+    ["PSR B1937+21","The first millisecond pulsar ever discovered."],
+    ["PSR B0540-69","A young, energetic pulsar in the Large Magellanic Cloud."],
+    ["PSR B1509-58","A pulsar whose nebula famously resembles a giant cosmic hand."]
+  ];
+  const r = rng('pulsars');
+  list.forEach(n=>{
+    const pos = spherePoint(r,1000,4500);
+    const group = new THREE.Group(); group.position.copy(pos); cat.group.add(group);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(2.2,16,16), new THREE.MeshBasicMaterial({color:0xffffff}));
+    group.add(core);
+    const beamMat = new THREE.MeshBasicMaterial({ color:0x99e6ff, transparent:true, opacity:0.35, blending:THREE.AdditiveBlending });
+    const beam1 = new THREE.Mesh(new THREE.ConeGeometry(9,120,16,1,true), beamMat);
+    beam1.position.y=60; group.add(beam1);
+    const beam2 = new THREE.Mesh(new THREE.ConeGeometry(9,120,16,1,true), beamMat);
+    beam2.position.y=-60; beam2.rotation.x=Math.PI; group.add(beam2);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(20,12,12), new THREE.MeshBasicMaterial({visible:false}));
+    hit.userData = { name:n[0], type:"Pulsar", desc:n[1], category:'pulsar' };
+    group.add(hit); interactables.push(hit); cat.count++;
+    pulsars.push({ group, speed: rangeR(r,0.02,0.06) });
+  });
+})();
+
+// ---- Quasars (bipolar jets) ----
+const quasars = [];
+(function buildQuasars(){
+  const cat = registerCat('quasar','Quasars',0xffaaff);
+  const list = [
+    ["3C 273","The very first quasar ever identified, astonishingly bright and distant."],
+    ["3C 48","The second quasar discovered, helping confirm these objects as extremely distant."],
+    ["S5 0014+81","One of the most luminous, supermassive black hole-powered objects known."],
+    ["APM 08279+5255","A hyperluminous quasar magnified by gravitational lensing."]
+  ];
+  const r = rng('quasars');
+  list.forEach(n=>{
+    const pos = spherePoint(r,3000,9000);
+    const group = new THREE.Group(); group.position.copy(pos); cat.group.add(group);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(6,20,20), new THREE.MeshBasicMaterial({color:0xffe0ff}));
+    group.add(core);
+    const flare = glowSprite(0xffaaff,300); flare.scale.set(120,120,1); group.add(flare);
+    const jetN=500; const jetGeo=new THREE.BufferGeometry(); const jp=new Float32Array(jetN*3);
+    jetGeo.setAttribute('position', new THREE.BufferAttribute(jp,3));
+    const jetMat = new THREE.PointsMaterial({ color:0xccaaff, size:2.5, transparent:true, opacity:0.7, blending:THREE.AdditiveBlending });
+    const jets = new THREE.Points(jetGeo, jetMat); group.add(jets);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(60,12,12), new THREE.MeshBasicMaterial({visible:false}));
+    hit.userData = { name:n[0], type:"Quasar", desc:n[1], category:'quasar' };
+    group.add(hit); interactables.push(hit); cat.count++;
+    quasars.push({ jets, seed:r()*100 });
+  });
+})();
+
+// ---- Kuiper Belt Objects ----
+(function buildKBOs(){
+  const cat = registerCat('kbo','Kuiper Belt Objects',0xa0c8ff);
+  // dust ring
+  const N=3500; const geo=new THREE.BufferGeometry(); const p=new Float32Array(N*3);
+  const rd = rng('kbo-dust');
+  for(let i=0;i<N;i++){ const a=rd()*Math.PI*2; const d=rangeR(rd,1450,1750); const h=(rd()-0.5)*40;
+    p[i*3]=Math.cos(a)*d; p[i*3+1]=h; p[i*3+2]=Math.sin(a)*d; }
+  geo.setAttribute('position', new THREE.BufferAttribute(p,3));
+  cat.group.add(new THREE.Points(geo, new THREE.PointsMaterial({ color:0x88aadd, size:1.2, transparent:true, opacity:0.4 })));
+
+  const list = [
+    ["Quaoar","A sizable Kuiper Belt world with its own ring system and a small moon."],
+    ["Orcus","A large Kuiper Belt object often called the 'anti-Pluto' for its similar but opposite orbit."],
+    ["Salacia","A large, dark Kuiper Belt object with a substantial companion moon."],
+    ["Varuna","A rapidly-rotating Kuiper Belt object named after a Hindu deity."],
+    ["Ixion","A sizable Kuiper Belt object without a confirmed moon."],
+    ["2002 MS4","One of the largest known Kuiper Belt objects still awaiting a formal name."],
+    ["2002 AW197","A large, bright Kuiper Belt object with a slow rotation."],
+    ["2003 AZ84","A Kuiper Belt object suspected to have its own small moon."],
+    ["2004 GV9","A binary Kuiper Belt object useful for measuring trans-Neptunian masses."],
+    ["2005 RN43","A classical Kuiper Belt object with an unusually circular orbit."],
+    ["2005 UQ513","A mid-sized, reddish Kuiper Belt world."],
+    ["2007 UK126","A large trans-Neptunian object with a distant moon."],
+    ["2007 OR10 (Gonggong)","One of the largest unnamed-at-discovery worlds in the outer solar system."]
+  ];
+  const r = rng('kbo-named');
+  list.forEach(n=>{
+    const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(rangeR(r,1.2,2),0), new THREE.MeshStandardMaterial({ color:0x9fb8d8, roughness:0.95, flatShading:true }));
+    const a=r()*Math.PI*2; const d=rangeR(r,1450,1780);
+    mesh.position.set(Math.cos(a)*d,(r()-0.5)*45,Math.sin(a)*d);
+    mesh.userData = { name:n[0], type:"Kuiper Belt Object", desc:n[1], category:'kbo' };
+    cat.group.add(mesh); interactables.push(mesh); cat.count++;
+  });
+})();
+
+// ---- Oort Cloud (very distant shell) ----
+(function buildOort(){
+  const cat = registerCat('oort','Oort Cloud',0x556688);
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(6200,48,48), new THREE.MeshBasicMaterial({ color:0x223355, wireframe:true, transparent:true, opacity:0.05 }));
+  cat.group.add(shell);
+  const list = [
+    ["2012 VP113 (Biden)","A distant scattered-disc object hinting at the presence of hidden outer planets."],
+    ["2004 VN112","An extremely distant object on the frontier of the inner Oort Cloud."],
+    ["2000 CR105","A remote object whose orbit challenges models of solar system formation."]
+  ];
+  const r = rng('oort');
+  list.forEach(n=>{
+    const pos = spherePoint(r,5200,6400);
+    const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4,0), new THREE.MeshStandardMaterial({color:0x7f96b8, flatShading:true}));
+    mesh.position.copy(pos);
+    mesh.userData = { name:n[0], type:"Oort Cloud Object", desc:n[1], category:'oort' };
+    cat.group.add(mesh); interactables.push(mesh); cat.count++;
+  });
+})();
+
+// ---- Exotic / Miscellaneous Objects ----
+(function buildExotic(){
+  const cat = registerCat('exotic','Exotic Objects',0xd8ff77);
+  const list = [
+    ["Arp's Loop","A faint looping arc of stars and gas near the galaxy M81."],
+    ["Baade's Windows","Rare low-dust regions allowing a clear view straight to the galactic bulge."],
+    ["Becklin-Neugebauer Object","A hidden, extremely young massive star glowing brightly in infrared."],
+    ["Barnard's \"E\" Nebula","A dark, E-shaped dust cloud silhouetted against background starlight."],
+    ["Barnard's \"S\" Nebula","A dark, S-shaped dust cloud cataloged by pioneering astronomer E.E. Barnard."]
+  ];
+  const r = rng('exotic');
+  list.forEach(n=>{
+    const pos = spherePoint(r,2000,6000);
+    const geo = new THREE.BufferGeometry(); const N=900; const p=new Float32Array(N*3);
+    for(let i=0;i<N;i++){ p[i*3]=(r()-0.5)*160; p[i*3+1]=(r()-0.5)*100; p[i*3+2]=(r()-0.5)*160; }
+    geo.setAttribute('position', new THREE.BufferAttribute(p,3));
+    const mesh = new THREE.Points(geo, new THREE.PointsMaterial({ color:0xd8ff77, size:3.5, transparent:true, opacity:0.5, blending:THREE.AdditiveBlending }));
+    mesh.position.copy(pos); cat.group.add(mesh);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(70,12,12), new THREE.MeshBasicMaterial({visible:false}));
+    hit.position.copy(pos);
+    hit.userData = { name:n[0], type:"Exotic Object", desc:n[1], category:'exotic' };
+    cat.group.add(hit); interactables.push(hit); cat.count++;
+  });
+})();
+
+// ---- Space Missions / Spacecraft ----
+const craftList = [];
+(function buildMissions(){
+  const cat = registerCat('mission','Space Missions',0xffffff);
+  const near = [
+    ["Hubble Space Telescope","Orbital Observatory","The iconic space telescope that revolutionized modern astronomy.",235],
+    ["James Webb Space Telescope","Infrared Observatory","An advanced infrared observatory operating far beyond the Moon at Sun-Earth L2.",300],
+    ["International Space Station (ISS)","Habitable Station","A modular space station continuously inhabited in low Earth orbit.",222],
+    ["Tiangong","Habitable Station","China's modular space station in low Earth orbit."]
+  ];
+  near.forEach((sc,i)=>{
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(3,3,7), new THREE.MeshStandardMaterial({ color:0xdddddd, metalness:0.9, roughness:0.15 }));
+    const a = i*1.5; const d = sc[3]||(230+i*15);
+    mesh.position.set(Math.cos(a)*d, (i-1.5)*4, Math.sin(a)*d);
+    mesh.userData = { name:sc[0], type:sc[1], desc:sc[2], category:'mission' };
+    cat.group.add(mesh); interactables.push(mesh); cat.count++;
+  });
+  const deep = [
+    ["Voyager 1","Interstellar Spacecraft","The farthest human-made object, now traveling through interstellar space.",2500,800,-2000],
+    ["Voyager 2","Interstellar Spacecraft","A legendary probe that toured all four giant planets before reaching interstellar space.",2200,-600,2400],
+    ["Pioneer 10","Interstellar Spacecraft","The first spacecraft to travel through the asteroid belt and past Jupiter.",1800,400,2600],
+    ["Pioneer 11","Interstellar Spacecraft","The first spacecraft to fly past Saturn, en route to interstellar space.",1900,-400,-2600],
+    ["New Horizons","Deep Space Probe","The spacecraft that gave humanity its first close-up images of Pluto.",1300,200,1100],
+    ["Cassini","Orbital Probe","A probe that spent 13 years unveiling the wonders of Saturn and its moons.",700,80,600],
+    ["Sputnik 1","Historic Satellite","Humanity's first artificial satellite, launched in 1957.",240,10,10],
+    ["Apollo 11","Historic Mission","The historic mission that first landed humans on the Moon.",16,3,3]
+  ];
+  const r = rng('deep-missions');
+  deep.forEach(sc=>{
+    const mesh = new THREE.Mesh(new THREE.ConeGeometry(2,6,8), new THREE.MeshStandardMaterial({ color:0xcccccc, metalness:0.85, roughness:0.2 }));
+    mesh.position.set(sc[3],sc[4],sc[5]);
+    mesh.userData = { name:sc[0], type:sc[1], desc:sc[2], category:'mission' };
+    cat.group.add(mesh); interactables.push(mesh); cat.count++;
+    const dir = new THREE.Vector3(sc[3],sc[4],sc[5]).normalize();
+    craftList.push({ mesh, dir, speed: rangeR(r,0.15,0.4) });
+  });
+})();
+
+sunLight.intensity = 4.2;
+
+// ============================================================
+// UI: LEGEND / LAYER TOGGLES
+// ============================================================
+const legendBody = document.getElementById('legend-body');
+Object.keys(categoryMeta).forEach(key=>{
+  const c = categoryMeta[key];
+  const row = document.createElement('div'); row.className='legend-row';
+  row.innerHTML = `<span class="legend-dot" style="background:#${new THREE.Color(c.color).getHexString()}"></span><span class="lbl">${c.label}</span><span class="cnt">${c.count}</span>`;
+  row.onclick = ()=>{ c.visible = !c.visible; c.group.visible = c.visible; row.classList.toggle('off', !c.visible); };
+  legendBody.appendChild(row);
+});
+
+// ============================================================
+// INTERACTION CORE — screen-space picking (works reliably for tiny nearby planets
+// AND huge distant galaxies alike, unlike raw 3D raycasting which let giant
+// invisible galaxy/nebula hit-volumes "steal" clicks meant for small planets),
+// toggle select, camera follows the object if it's orbiting, and a smooth
+// return-flight to exactly where you were when you deselect.
+// ============================================================
+const mouse = new THREE.Vector2();
+let flightActive = false;
+const flightCamTarget = new THREE.Vector3();
+const flightLookTarget = new THREE.Vector3();
+
+let currentSelected = null;
+let followPrevPos = null;
+const preSelectCam = new THREE.Vector3();
+const preSelectTarget = new THREE.Vector3();
+
+const VIEW_DIST = { star:70, star2:60, planet:40, dwarf:22, moon:10, asteroid:12, comet:14, exoplanet:55,
+  galaxy:900, cluster_gal:1200, cluster_star:240, nebula:240, blackhole:200, remnant:170, supernova:110,
+  pulsar:100, quasar:240, kbo:12, oort:18, exotic:190, mission:16 };
+
+function showInfo(data){
+  document.getElementById('obj-badge').innerText = (data.category||'object').replace('_',' ').toUpperCase();
+  document.getElementById('obj-name').innerText = data.name;
+  document.getElementById('obj-type').innerText = data.type;
+  document.getElementById('obj-desc').innerText = data.desc;
+  document.getElementById('info-panel').classList.add('active');
+}
+
+// Finds whichever interactable object is visually nearest to a screen pixel —
+// far more reliable than 3D raycasting when tiny planets sit in front of
+// enormous invisible galaxy/nebula/cluster pick-volumes.
+const _wp = new THREE.Vector3();
+function pickNearestOnScreen(px, py, maxPixel){
+  let best=null, bestD=Infinity;
+  for(let i=0;i<interactables.length;i++){
+    const obj = interactables[i];
+    if(categoryMeta[obj.userData.category] && categoryMeta[obj.userData.category].visible===false) continue;
+    obj.getWorldPosition(_wp);
+    const proj = _wp.clone().project(camera);
+    if(proj.z>1 || proj.z<-1) continue; // behind camera
+    const sx = (proj.x*0.5+0.5)*innerWidth, sy = (-proj.y*0.5+0.5)*innerHeight;
+    const d = Math.hypot(sx-px, sy-py);
+    if(d<bestD){ bestD=d; best=obj; }
+  }
+  return (best && bestD<=maxPixel) ? best : null;
+}
+
+function flyToward(wp, dist){
+  let dir = camera.position.clone().sub(wp);
+  if(dir.lengthSq() < 1e-4) dir.set(0.4, 0.25, 1);
+  dir.normalize();
+  flightCamTarget.copy(wp).addScaledVector(dir, dist);
+  flightLookTarget.copy(wp);
+  flightActive = true;
+}
+
+// Toggle selection: tap an object to select+fly-in, tap the SAME object again to
+// deselect and fly back to exactly where the camera was before you selected it.
+function selectObject(obj){
+  if(currentSelected === obj){ deselectAndReturn(); return; }
+  if(currentSelected === null){ preSelectCam.copy(camera.position); preSelectTarget.copy(controls.target); }
+  currentSelected = obj;
+  followPrevPos = null;
+  showInfo(obj.userData);
+  const wp = new THREE.Vector3(); obj.getWorldPosition(wp);
+  flyToward(wp, VIEW_DIST[obj.userData.category] || 50);
+}
+function deselectAndReturn(){
+  currentSelected = null;
+  followPrevPos = null;
+  document.getElementById('info-panel').classList.remove('active');
+  flightCamTarget.copy(preSelectCam);
+  flightLookTarget.copy(preSelectTarget);
+  flightActive = true;
+}
+// Kept for search results / gesture code that just wants to fly somewhere without
+// the toggle behavior applying (still routes through the same selection system).
+function goTo(obj){ selectObject(obj); }
+
+let pointerDownInfo = null;
+window.addEventListener('pointerdown', (e)=>{
+  if(e.button!==0) return;
+  if(e.target && e.target.closest && (e.target.closest('#legend') || e.target.closest('#hud-top') || e.target.closest('#gesture-btn'))) return;
+  pointerDownInfo = { x:e.clientX, y:e.clientY, t:performance.now() };
+});
+window.addEventListener('pointerup', (e)=>{
+  if(!pointerDownInfo) return;
+  const moved = Math.hypot(e.clientX-pointerDownInfo.x, e.clientY-pointerDownInfo.y);
+  const elapsed = performance.now()-pointerDownInfo.t;
+  pointerDownInfo = null;
+  // Only counts as a real "click/tap to select" if it was a quick, near-stationary press —
+  // otherwise it was a drag-to-rotate/pan gesture and shouldn't trigger object selection.
+  if(moved > 6 || elapsed > 500) return;
+  const hit = pickNearestOnScreen(e.clientX, e.clientY, 42);
+  if(hit){ selectObject(hit); }
+});
+
+// ============================================================
+// SEARCH — jumps the camera straight to the selected object
+// ============================================================
+const searchBox = document.getElementById('search-box');
+const searchResults = document.getElementById('search-results');
+searchBox.addEventListener('input', ()=>{
+  const q = searchBox.value.trim().toLowerCase();
+  searchResults.innerHTML='';
+  if(q.length<1){ searchResults.style.display='none'; return; }
+  const matches = interactables.filter(o=>o.userData.name && o.userData.name.toLowerCase().includes(q)).slice(0,30);
+  if(matches.length===0){ searchResults.style.display='none'; return; }
+  matches.forEach(m=>{
+    const div = document.createElement('div'); div.textContent = m.userData.name;
+    div.onclick = ()=>{ goTo(m); searchResults.style.display='none'; searchBox.value = m.userData.name; };
+    searchResults.appendChild(div);
+  });
+  searchResults.style.display='block';
+});
+searchBox.addEventListener('keydown', (e)=>{
+  if(e.key==='Enter'){
+    const first = searchResults.querySelector('div');
+    if(first) first.click();
+  }
+  e.stopPropagation(); // don't let WASD typing move the camera while typing
+});
+
+// ============================================================
+// KEYBOARD FLIGHT CONTROLS — WASD / Arrow Keys to fly, Q/E to rise & fall
+// ============================================================
+const keyState = {};
+addEventListener('keydown', (e)=>{ keyState[e.code]=true; });
+addEventListener('keyup', (e)=>{ keyState[e.code]=false; });
+const flyVel = { yaw:0, dolly:0, elevate:0 };
+function updateKeyboardFlight(dt){
+  const typing = document.activeElement === searchBox;
+  const yawIn = typing?0:((keyState['KeyA']||keyState['ArrowLeft']?1:0) - (keyState['KeyD']||keyState['ArrowRight']?1:0));
+  const dollyIn = typing?0:((keyState['KeyW']||keyState['ArrowUp']?1:0) - (keyState['KeyS']||keyState['ArrowDown']?1:0));
+  const elevIn = typing?0:((keyState['KeyE']?1:0) - (keyState['KeyQ']?1:0));
+
+  const accel = Math.min(1, 7*dt);
+  flyVel.yaw += (yawIn - flyVel.yaw)*accel;
+  flyVel.dolly += (dollyIn - flyVel.dolly)*accel;
+  flyVel.elevate += (elevIn - flyVel.elevate)*accel;
+
+  if(Math.abs(flyVel.yaw)<0.001 && Math.abs(flyVel.dolly)<0.001 && Math.abs(flyVel.elevate)<0.001) return;
+  flightActive = false;
+
+  const offset = camera.position.clone().sub(controls.target);
+  const spherical = new THREE.Spherical().setFromVector3(offset);
+  spherical.theta -= flyVel.yaw * dt * 1.35;
+  spherical.radius *= (1 - flyVel.dolly * dt * 0.9);
+  spherical.radius = THREE.MathUtils.clamp(spherical.radius, controls.minDistance, controls.maxDistance);
+  offset.setFromSpherical(spherical);
+  camera.position.copy(controls.target).add(offset);
+
+  const rise = flyVel.elevate * dt * Math.max(spherical.radius*0.4, 4);
+  camera.position.y += rise;
+  controls.target.y += rise;
+}
+
+// ============================================================
+// HAND GESTURE CONTROL
+// Open Palm = idle (no action) · One Fist = 360 orbit + zoom (move it forward/back to
+// zoom, left/right/up/down to orbit) · One Finger Point = aim & select whatever it
+// touches · Two Fists = forward flight through space, steer with hand position,
+// push both fists toward the screen together to boost speed.
+// ============================================================
+(function handGestures(){
+  const btn = document.getElementById('gesture-btn');
+  const label = document.getElementById('gesture-label');
+  const statusEl = document.getElementById('gesture-status');
+  const cursorEl = document.getElementById('gesture-cursor');
+  const vignetteEl = document.getElementById('flight-vignette');
+  const video = document.getElementById('gesture-video');
+  let handLandmarker=null, stream=null, active=false, rafId=null, lastVideoTime=-1;
+
+  // Per-hand tracking state, keyed by handedness label so smoothing stays stable
+  // across frames even when two hands are in view.
+  const handStates = {};
+  function getHandState(key){
+    if(!handStates[key]) handStates[key] = { posHistory:[], gestureHistory:[], lastPos:null, lastSpan:null, lastStableGesture:null };
+    return handStates[key];
+  }
+  function smoothPositionFor(st, x, y){
+    st.posHistory.push({x,y}); if(st.posHistory.length>6) st.posHistory.shift();
+    const ax = st.posHistory.reduce((s,p)=>s+p.x,0)/st.posHistory.length;
+    const ay = st.posHistory.reduce((s,p)=>s+p.y,0)/st.posHistory.length;
+    return {x:ax,y:ay};
+  }
+  // Wider history + falls back to the last STABLE gesture (not the noisy raw one) when
+  // there's no clear majority — this is what stops gestures from flickering/confusing.
+  function stabilizeFor(st, g){
+    st.gestureHistory.push(g); if(st.gestureHistory.length>8) st.gestureHistory.shift();
+    const counts={}; st.gestureHistory.forEach(h=>counts[h]=(counts[h]||0)+1);
+    let best=g,bestC=0;
+    for(const k in counts){ if(counts[k]>bestC){ bestC=counts[k]; best=k; } }
+    const result = (bestC/st.gestureHistory.length > 0.5) ? best : (st.lastStableGesture || g);
+    st.lastStableGesture = result;
+    return result;
+  }
+
+  function d2(lm,a,b){ return Math.hypot(lm[a].x-lm[b].x, lm[a].y-lm[b].y); }
+  // Every distance below is divided by the hand's own palm length, so the gesture
+  // still reads correctly whether the hand is close to the webcam or far away —
+  // fixed pixel-scale thresholds were the main reason gestures were missed before.
+  // prevGesture adds hysteresis: once a hand IS a fist, it takes a clearer signal to
+  // leave that state, which is what stops rapid flicker between fist/point/other.
+  function classifyHand(lm, prevGesture){
+    const INDEX_TIP=8, MIDDLE_TIP=12, RING_TIP=16, PINKY_TIP=20, INDEX_MCP=5, MIDDLE_MCP=9, PINKY_MCP=17, WRIST=0;
+    const handSize = Math.max(d2(lm,WRIST,MIDDLE_MCP), 0.0001);
+    const idxR = d2(lm,WRIST,INDEX_TIP)/handSize;
+    const midR = d2(lm,WRIST,MIDDLE_TIP)/handSize;
+    const ringR = d2(lm,WRIST,RING_TIP)/handSize;
+    const pinkyR = d2(lm,WRIST,PINKY_TIP)/handSize;
+    const curl = (idxR+midR+ringR+pinkyR)/4; // low = fingers curled into a fist, high = open palm
+    const extCount = [idxR,midR,ringR,pinkyR].filter(v=>v>1.65).length;
+    const fistCurlLimit = prevGesture==='fist' ? 1.9 : 1.6; // sticky once already a fist
+
+    let gesture;
+    if(curl < fistCurlLimit && extCount<=1) gesture='fist';
+    else if(extCount>=3) gesture='palm';
+    else if(idxR>1.65 && midR<1.5 && ringR<1.5 && pinkyR<1.5) gesture='point';
+    else gesture='other';
+
+    const span = d2(lm,INDEX_MCP,PINKY_MCP);
+    const center = { x:(lm[MIDDLE_MCP].x+lm[WRIST].x)/2, y:(lm[MIDDLE_MCP].y+lm[WRIST].y)/2 };
+    return { gesture, span, center, indexTip:lm[INDEX_TIP] };
+  }
+
+  let lastPointedObject = null;
+  const BASE_FLIGHT_SPEED = 90; // units/sec cruise speed, independent of current zoom level
+  let flightForwardDir = null, prevFistAvgSpan = null, lastFrameTime = null, flightGraceFrames = 0;
+  let cursorActiveUntil = 0;
+
+  function setCursor(x, y, activeNow){
+    cursorEl.style.display = 'block';
+    cursorEl.style.left = (x*innerWidth)+'px';
+    cursorEl.style.top = (y*innerHeight)+'px';
+    const now = performance.now();
+    if(activeNow) cursorActiveUntil = now + 160;
+    cursorEl.classList.toggle('active', now < cursorActiveUntil);
+  }
+
+  function orbitFist(h){
+    const st = h.state;
+    let activeNow = false;
+    if(st.lastPos){
+      const dx = h.pos.x - st.lastPos.x, dy = h.pos.y - st.lastPos.y;
+      if(Math.abs(dx)>0.0025 || Math.abs(dy)>0.0025){ applyOrbitDelta(dx,dy); activeNow = true; }
+    }
+    if(st.lastSpan!=null){
+      const dSpan = h.span - st.lastSpan;
+      if(Math.abs(dSpan)>0.003){ applyZoomDelta(dSpan); activeNow = true; }
+    }
+    st.lastPos = h.pos; st.lastSpan = h.span;
+    setCursor(h.pos.x, h.pos.y, activeNow);
+  }
+
+  function pointSelect(h){
+    const hitObj = pickNearestOnScreen(h.pos.x*innerWidth, h.pos.y*innerHeight, 70);
+    if(hitObj && hitObj!==lastPointedObject){ selectObject(hitObj); lastPointedObject = hitObj; setCursor(h.pos.x,h.pos.y,true); }
+    else if(!hitObj){ lastPointedObject = null; setCursor(h.pos.x,h.pos.y,false); }
+    else { setCursor(h.pos.x,h.pos.y,false); }
+  }
+
+  function applyOrbitDelta(dx,dy){
+    flightActive=false;
+    const offset = camera.position.clone().sub(controls.target);
+    const sph = new THREE.Spherical().setFromVector3(offset);
+    sph.theta -= dx*5.6;
+    sph.phi = THREE.MathUtils.clamp(sph.phi - dy*4.6, 0.08, Math.PI-0.08);
+    offset.setFromSpherical(sph);
+    camera.position.copy(controls.target).add(offset);
+  }
+  function applyZoomDelta(deltaSpan){
+    flightActive=false;
+    const offset = camera.position.clone().sub(controls.target);
+    const sph = new THREE.Spherical().setFromVector3(offset);
+    sph.radius *= (1 - deltaSpan*7.0);
+    sph.radius = THREE.MathUtils.clamp(sph.radius, controls.minDistance, controls.maxDistance);
+    offset.setFromSpherical(sph);
+    camera.position.copy(controls.target).add(offset);
+  }
+
+  function doubleFistFlight(fistHands, dt){
+    flightActive = false;
+    const avgX = (fistHands[0].pos.x + fistHands[1].pos.x)/2;
+    const avgY = (fistHands[0].pos.y + fistHands[1].pos.y)/2;
+    const avgSpan = (fistHands[0].span + fistHands[1].span)/2;
+
+    if(!flightForwardDir){
+      flightForwardDir = new THREE.Vector3();
+      camera.getWorldDirection(flightForwardDir);
+      prevFistAvgSpan = avgSpan;
+    }
+
+    const boost = (prevFistAvgSpan!=null && (avgSpan - prevFistAvgSpan) > 0.004) ? 3.0 : 1.0;
+    prevFistAvgSpan = avgSpan;
+
+    const steerX = (avgX - 0.5), steerY = (avgY - 0.5);
+    flightForwardDir.applyAxisAngle(new THREE.Vector3(0,1,0), -steerX*dt*2.0);
+    flightForwardDir.y = THREE.MathUtils.clamp(flightForwardDir.y - steerY*dt*1.6, -0.88, 0.88);
+    flightForwardDir.normalize();
+
+    const speed = BASE_FLIGHT_SPEED * boost;
+    const move = flightForwardDir.clone().multiplyScalar(speed*dt);
+    camera.position.add(move);
+    controls.target.copy(camera.position).add(flightForwardDir.clone().multiplyScalar(140));
+
+    if(vignetteEl) vignetteEl.style.opacity = Math.min(0.5, (boost-1)*0.25 + 0.12);
+    cursorEl.style.display = 'none';
+    statusEl.textContent = boost>1.5 ? '🚀 Boosting Forward' : '🚀 Flying Forward';
+  }
+  function continueFlightStraight(dt){
+    if(!flightForwardDir) return;
+    const move = flightForwardDir.clone().multiplyScalar(BASE_FLIGHT_SPEED*dt);
+    camera.position.add(move);
+    controls.target.copy(camera.position).add(flightForwardDir.clone().multiplyScalar(140));
+    if(vignetteEl) vignetteEl.style.opacity = 0.12;
+    cursorEl.style.display = 'none';
+  }
+  function endFlightSession(){
+    flightForwardDir = null; prevFistAvgSpan = null; flightGraceFrames = 0;
+    if(vignetteEl) vignetteEl.style.opacity = 0;
+  }
+
+  function resetSingleHandStates(){ lastPointedObject = null; }
+
+  function processResults(res){
+    const lmArr = res.landmarks || [];
+    if(lmArr.length===0){
+      cursorEl.style.display='none'; statusEl.textContent='🖐️ No hand detected';
+      endFlightSession(); resetSingleHandStates();
+      return;
+    }
+    const hands = lmArr.map((lm,i)=>{
+      const rawLabel = (res.handednesses && res.handednesses[i] && res.handednesses[i][0]) ? res.handednesses[i][0].categoryName : ('H'+i);
+      const st = getHandState(rawLabel);
+      const raw = classifyHand(lm, st.lastStableGesture);
+      const pos = smoothPositionFor(st, 1-raw.center.x, raw.center.y); // mirrored for natural mapping
+      const gesture = stabilizeFor(st, raw.gesture);
+      return { label:rawLabel, gesture, pos, span:raw.span, state:st };
+    });
+
+    const fists = hands.filter(h=>h.gesture==='fist');
+    const now = performance.now();
+
+    if(hands.length===2 && fists.length===2){
+      const realDt = lastFrameTime ? Math.min((now-lastFrameTime)/1000, 0.1) : 1/30;
+      lastFrameTime = now;
+      flightGraceFrames = 12; // ~0.4s of tolerance if a hand is briefly lost/misread mid-flight
+      doubleFistFlight(fists, realDt);
+      statusEl.classList.add('show');
+      return;
+    }
+
+    // Brief tolerance: keep flying straight for a few frames even if a hand was
+    // momentarily lost or misclassified, instead of abruptly cutting the flight.
+    if(flightGraceFrames>0 && flightForwardDir){
+      flightGraceFrames--;
+      const realDt = lastFrameTime ? Math.min((now-lastFrameTime)/1000, 0.1) : 1/30;
+      lastFrameTime = now;
+      continueFlightStraight(realDt);
+      statusEl.textContent = '🚀 Flying Forward';
+      statusEl.classList.add('show');
+      return;
+    }
+
+    lastFrameTime = null;
+    endFlightSession();
+
+    const h = hands[0];
+    if(h.gesture==='fist'){ orbitFist(h); statusEl.textContent = '✊ Orbit & Zoom'; resetSingleHandStates(); }
+    else if(h.gesture==='point'){ pointSelect(h); statusEl.textContent = '👆 Aim & Select'; }
+    else { setCursor(h.pos.x, h.pos.y, false); statusEl.textContent = '🖐️ Open Palm — Idle'; resetSingleHandStates(); h.state.lastPos=null; h.state.lastSpan=null; }
+  }
+
+  async function createLandmarker(vision, fileset, delegate){
+    return vision.HandLandmarker.createFromOptions(fileset, {
+      baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate },
+      runningMode:'VIDEO', numHands:2,
+      minHandDetectionConfidence:0.4, minHandPresenceConfidence:0.4, minTrackingConfidence:0.4
+    });
+  }
+  async function start(){
+    try{
+      statusEl.textContent = '🖐️ Loading gesture model...'; statusEl.classList.add('show');
+      const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14');
+      const fileset = await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+      try{
+        handLandmarker = await createLandmarker(vision, fileset, 'GPU');
+      }catch(gpuErr){
+        statusEl.textContent = '🖐️ GPU unavailable, using CPU...';
+        handLandmarker = await createLandmarker(vision, fileset, 'CPU');
+      }
+      stream = await navigator.mediaDevices.getUserMedia({ video:{ width:320, height:240 }, audio:false });
+      video.srcObject = stream;
+      await video.play();
+      active = true;
+      btn.classList.add('on'); label.textContent = 'Gestures ON';
+      statusEl.textContent = '✊ Orbit/Zoom · 👆 Select · ✊✊ Fly Forward';
+      loop();
+    }catch(err){
+      statusEl.textContent = '⚠️ Camera or model unavailable';
+      setTimeout(()=>statusEl.classList.remove('show'), 3500);
+      active = false;
+    }
+  }
+  function stop(){
+    active = false;
+    if(rafId) cancelAnimationFrame(rafId);
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    btn.classList.remove('on'); label.textContent = 'Hand Gestures';
+    statusEl.classList.remove('show');
+    cursorEl.style.display = 'none';
+    endFlightSession();
+  }
+  function loop(){
+    if(!active) return;
+    rafId = requestAnimationFrame(loop);
+    if(!handLandmarker || video.readyState<2) return;
+    if(video.currentTime === lastVideoTime) return;
+    lastVideoTime = video.currentTime;
+    const res = handLandmarker.detectForVideo(video, performance.now());
+    processResults(res);
+  }
+
+  btn.addEventListener('click', ()=>{ if(active) stop(); else start(); });
+})();
+
+// intro fade
+setTimeout(()=>{ document.getElementById('intro').classList.add('hidden'); }, 2600);
+setTimeout(()=>{ document.getElementById('intro').style.display='none'; }, 4300);
+
+// ============================================================
+// ANIMATION LOOP
+// ============================================================
+const clock = new THREE.Clock();
+let frames=0, fpsTimer=0;
+const fpsEl = document.getElementById('fps');
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  sunMat.uniforms.uTime.value = t;
+  if(window.__starfieldMat) window.__starfieldMat.uniforms.uTime.value = t;
+  corona.material.rotation += dt*0.05;
+  sun.rotation.y += dt*0.03;
+
+  orbitables.forEach(o=>{ o.pivot.rotation.y += o.speed; o.mesh.rotation.y += o.selfSpin; });
+  spinables.forEach(s=>{ s.mesh.rotation.y += s.speed; });
+
+  // comets: tail streams away from sun
+  comets.forEach(c=>{
+    const dirAway = c.nucleus.position.clone().normalize();
+    const positions = c.tail.geometry.attributes.position.array;
+    const n = positions.length/3;
+    for(let i=0;i<n;i++){
+      const f = i/n;
+      const jitter = (Math.sin(t*2+i+c.seed*50)*0.5)*f*6;
+      const p = c.nucleus.position.clone().add(dirAway.clone().multiplyScalar(f*45)).add(new THREE.Vector3(jitter,jitter*0.6,jitter));
+      positions[i*3]=p.x; positions[i*3+1]=p.y; positions[i*3+2]=p.z;
+    }
+    c.tail.geometry.attributes.position.needsUpdate = true;
+  });
+
+  remnants.forEach(rm=>{ const s = 1+0.12*Math.sin(t*0.6+rm.phase); rm.mesh.scale.set(s,s,s); });
+  pulsars.forEach(p=>{ p.group.rotation.z += p.speed; });
+  quasars.forEach(q=>{
+    const arr = q.jets.geometry.attributes.position.array; const n=arr.length/3;
+    for(let i=0;i<n;i++){
+      const f=((i/n)+t*0.25+q.seed)%1;
+      const side = i%2===0?1:-1;
+      arr[i*3] = (Math.sin(i*12.9+t)*3)*f;
+      arr[i*3+1] = side*f*220;
+      arr[i*3+2] = (Math.cos(i*7.3+t)*3)*f;
+    }
+    q.jets.geometry.attributes.position.needsUpdate = true;
+  });
+  craftList.forEach(c=>{ c.mesh.position.addScaledVector(c.dir, c.speed); if(c.mesh.position.length()>60000) c.mesh.position.multiplyScalar(0.02); });
+
+  updateKeyboardFlight(dt);
+
+  if(flightActive){
+    const ease = 1 - Math.pow(0.0018, dt); // smooth, frame-rate independent easing
+    camera.position.lerp(flightCamTarget, ease);
+    controls.target.lerp(flightLookTarget, ease);
+    if(camera.position.distanceTo(flightCamTarget) < Math.max(flightCamTarget.distanceTo(flightLookTarget)*0.01, 0.3) &&
+       controls.target.distanceTo(flightLookTarget) < 0.3){ flightActive = false; }
+  } else if(currentSelected){
+    // While an object is selected and its info panel is open, ride along with it —
+    // if it's an orbiting planet/moon the camera keeps pace instead of getting left behind.
+    currentSelected.getWorldPosition(_wp);
+    if(followPrevPos){
+      const delta = _wp.clone().sub(followPrevPos);
+      camera.position.add(delta);
+      controls.target.add(delta);
+    } else {
+      controls.target.copy(_wp);
+    }
+    followPrevPos = _wp.clone();
+  }
+  controls.update();
+
+  if(composer) composer.render(); else renderer.render(scene, camera);
+
+  frames++; fpsTimer+=dt;
+  if(fpsTimer>0.5){
+    fpsEl.textContent = Math.round(frames/fpsTimer)+' fps · '+interactables.length+' objects';
+    frames=0; fpsTimer=0;
+  }
+}
+animate();
+
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  if(composer) composer.setSize(innerWidth, innerHeight);
+});
+
+})();
+</script>
+</body>
+</html>

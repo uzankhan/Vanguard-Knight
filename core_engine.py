@@ -86,6 +86,25 @@ KNOWN_SYSTEM_PROCESSES = {
     'wininit.exe', 'csrss.exe', 'smss.exe', 'lsass.exe', 'system',
 }
 
+# Legitimate software that routinely writes many small files per minute
+# during completely normal use (browser cache/cookies/IndexedDB, editor
+# auto-save, sync-client diffing, package-manager extraction, etc.).
+# These get a much higher rate ceiling before the rate signal even counts
+# -- ransomware detection should never punish ordinary heavy usage.
+# NOTE: this is a name-based hint used only to pick a threshold, not a
+# trust decision by itself -- these processes still go through full
+# signature/entropy checks like anything else.
+KNOWN_HIGH_IO_APPS = {
+    'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe',
+    'explorer.exe', 'onedrive.exe', 'dropbox.exe', 'teams.exe', 'slack.exe',
+    'code.exe', 'devenv.exe', 'git.exe', 'node.exe', 'python.exe', 'pythonw.exe',
+    'outlook.exe', 'winword.exe', 'excel.exe', 'powerpnt.exe',
+    'discord.exe', 'spotify.exe', 'steam.exe', 'steamwebhelper.exe',
+    'searchindexer.exe', 'msmpeng.exe', 'widgets.exe',
+}
+RANSOMWARE_RATE_THRESHOLD_NORMAL = 60      # files/min for unrecognized processes
+RANSOMWARE_RATE_THRESHOLD_HIGH_IO = 250    # files/min for known legitimate high-I/O apps
+
 
 def detect_lolbin(process_name: str, command_line: str) -> tuple:
     if not command_line:
@@ -100,20 +119,26 @@ def detect_lolbin(process_name: str, command_line: str) -> tuple:
 
 
 class RansomwareRateTracker:
-    """Tracks file-write rate per PID to catch mass-encryption bursts,
-    independent of per-file entropy (belt-and-suspenders approach)."""
+    """Tracks file-write rate per PID to catch mass-encryption bursts.
+    IMPORTANT: rate alone is a WEAK, noisy signal -- browsers, IDEs, sync
+    clients, and many other completely legitimate apps can easily write
+    50-100+ small cache/temp files per minute during normal heavy use.
+    This tracker's output should never trigger an auto-kill by itself;
+    see _handle_file_create for how it's combined with entropy analysis
+    before any action is taken."""
 
-    def __init__(self, threshold_files_per_min: int = 25):
-        self.threshold = threshold_files_per_min
+    def __init__(self, default_threshold: int = 60):
+        self.default_threshold = default_threshold
         self.file_ops: Dict[int, list] = {}
 
-    def record_and_check(self, pid: int) -> bool:
+    def record_and_check(self, pid: int, threshold: int = None) -> bool:
         now = time.time()
         ops = self.file_ops.setdefault(pid, [])
         ops.append(now)
         # keep only last 60 seconds
         self.file_ops[pid] = [t for t in ops if now - t < 60]
-        return len(self.file_ops[pid]) > self.threshold
+        limit = threshold if threshold is not None else self.default_threshold
+        return len(self.file_ops[pid]) > limit
 
 
 class DNSTunnelingHeuristic:
@@ -136,6 +161,28 @@ class DNSTunnelingHeuristic:
             if hex_like / len(label) > 0.7:
                 return True, f"Long hex-like DNS label ({label[:20]}...) -- possible data exfiltration via DNS"
         return False, ""
+
+
+def _is_dangerous_lsass_access(granted_access) -> bool:
+    """
+    Only access rights that include PROCESS_VM_READ (0x0010) indicate
+    genuine memory-reading intent -- the actual mechanism needed to dump
+    credentials from LSASS. Many completely legitimate Windows components
+    (svchost.exe-hosted services, session management, WMI, even Task
+    Manager) touch LSASS constantly with harmless query-only access
+    rights as part of normal OS operation. Treating EVERY touch as
+    confirmed credential theft (as a previous version of this code did)
+    causes catastrophic false positives on core system processes.
+    """
+    PROCESS_VM_READ = 0x0010
+    try:
+        if isinstance(granted_access, str):
+            access_int = int(granted_access, 16) if granted_access.lower().startswith('0x') else int(granted_access)
+        else:
+            access_int = int(granted_access)
+    except (ValueError, TypeError):
+        return False  # can't parse the access mask -- don't flag on uncertain data
+    return bool(access_int & PROCESS_VM_READ)
 
 
 class CoreEngine:
@@ -163,7 +210,8 @@ class CoreEngine:
         self.permission_callback = permission_callback or self._default_permission_handler
 
         self.event_queue: "queue.Queue" = queue.Queue(maxsize=5000)
-        self.sysmon_reader = SysmonEventReader(output_queue=self.event_queue)
+        self.sysmon_reader = SysmonEventReader(output_queue=self.event_queue,
+                                               log_callback=self.log_callback)
         self.trusted_apps = TrustedAppManager()
         self.forensics = ForensicsManager()
         self.usb_guard = USBHIDGuard(on_alert=self._on_usb_alert)
@@ -189,7 +237,26 @@ class CoreEngine:
             self.worker_threads.append(t)
 
         self.log_callback("[+] Vanguard Knight Core Engine started.")
+        self.log_callback(f"[+] {len(self.worker_threads)} worker thread(s) running.")
         self.log_callback(f"[+] {len(self.trusted_apps.list_trusted())} trusted app(s) loaded.")
+
+        # Kick off an immediate hardening scan (in the background, so it
+        # doesn't delay activation), then repeat every 24 hours.
+        self.log_callback("[+] Starting system self-scan (open ports, security posture)...")
+        threading.Thread(target=self._run_initial_hardening_scan, daemon=True).start()
+
+    def _run_initial_hardening_scan(self):
+        try:
+            from system_hardening import run_full_hardening_scan, start_periodic_hardening
+            report = run_full_hardening_scan(auto_fix=True)
+            self.log_callback(
+                f"[HARDENING] Self-scan complete: {report.total_auto_fixed} issue(s) fixed "
+                f"automatically, {report.total_reported_only} flagged for your review. "
+                f"Full report saved to Vault/SystemHardening/{report.report_id}/report.md"
+            )
+            start_periodic_hardening(interval_hours=24)
+        except Exception as e:
+            self.log_callback(f"[HARDENING] Self-scan could not run: {e}")
 
     def stop(self):
         self.running = False
@@ -213,7 +280,20 @@ class CoreEngine:
                 self._route_event(event)
                 self.stats['analyzed'] += 1
             except Exception as e:
-                logger.error(f"Event handling error: {e}")
+                # THIS WAS A SILENT-FAILURE BUG: previously only went to the
+                # Python logger (invisible to the GUI). If an event caused
+                # an exception during routing (e.g. an unexpected data
+                # shape from Sysmon), it would vanish with no trace visible
+                # anywhere in the app -- stats would never increment for
+                # that event, and nothing would explain why. Now the full
+                # error (with event type, for context) reaches the Live
+                # Activity Log immediately.
+                import traceback
+                etype = event.get('event_type', 'unknown') if isinstance(event, dict) else 'unknown'
+                error_msg = f"[ENGINE] Error processing '{etype}' event: {e}"
+                logger.error(error_msg)
+                logger.error(traceback.format_exc())
+                self.log_callback(error_msg)
 
     def _route_event(self, event: dict):
         etype = event.get('event_type')
@@ -376,10 +456,18 @@ class CoreEngine:
             reasons.append("Unsigned binary")
 
         path_lower = exe.lower()
-        if r'\program files\\' in path_lower or r'\windows\\' in path_lower:
+        # NOTE: previously these used raw strings ending in a doubled
+        # backslash (e.g. r'\program files\\'), which actually checks for
+        # TWO literal backslashes in a row -- something that never appears
+        # in a real Windows path. That silently broke this entire check:
+        # legitimate software in Program Files/Windows never got its
+        # deserved trust bonus, and "suspicious location" checks similarly
+        # never correctly matched. Using plain substrings (no trailing
+        # separator needed) avoids the escaping pitfall entirely.
+        if '\\program files' in path_lower or '\\windows\\' in path_lower:
             score += 15
             reasons.append("System install location")
-        elif any(p in path_lower for p in [r'\temp\\', r'\downloads\\', r'\public\\', r'\appdata\local\temp\\']):
+        elif any(p in path_lower for p in ['\\temp\\', '\\downloads\\', '\\public\\', '\\appdata\\local\\temp\\']):
             score -= 20
             reasons.append("Running from suspicious location (Temp/Downloads/Public)")
 
@@ -424,16 +512,39 @@ class CoreEngine:
             return
 
         source_name = ntpath.basename(source)
+        name_lower = source_name.lower()
+
+        # CRITICAL FIX: core Windows system processes (svchost.exe,
+        # services.exe, wininit.exe, csrss.exe, smss.exe) legitimately
+        # touch LSASS constantly as part of completely normal OS
+        # operation. Without this check, routine svchost.exe activity was
+        # being flagged as CONFIRMED credential theft and terminated --
+        # since svchost.exe hosts many essential Windows services, killing
+        # it (and quarantining/moving its executable) can cascade into
+        # serious system instability or a full crash.
+        if name_lower in KNOWN_SYSTEM_PROCESSES:
+            return
+
         # Trusted tools (e.g. legitimate AV/EDR, Task Manager) may legitimately
         # touch LSASS; check trust before flagging.
         if self.trusted_apps.check(source):
             return
 
+        # CRITICAL FIX: only flag access patterns that actually include
+        # PROCESS_VM_READ -- the specific right needed to read credential
+        # material out of memory. LSASS is touched extremely frequently by
+        # totally benign software with query-only access rights; without
+        # this filter, EVERY single touch (a very common, routine event on
+        # any real Windows machine) was being treated as confirmed malware.
+        if not _is_dangerous_lsass_access(granted_access):
+            return
+
         if self._cooldown_ok(f"lsass_{source_pid}", seconds=60):
             self._raise_incident(
                 threat_name=source_name, pid=source_pid, exe_path=source,
-                reason=f"Process accessed LSASS memory (GrantedAccess={granted_access}) "
-                       f"-- signature consistent with credential-dumping tools (Mimikatz-class)",
+                reason=f"Process accessed LSASS memory with VM_READ rights "
+                       f"(GrantedAccess={granted_access}) -- signature consistent "
+                       f"with credential-dumping tools (Mimikatz-class)",
                 severity="CRITICAL",
             )
 
@@ -445,6 +556,20 @@ class CoreEngine:
         source_pid = int(data.get('SourceProcessId', 0) or 0)
         target_pid = int(data.get('TargetProcessId', 0) or 0)
         source_image = data.get('SourceImage', '')
+        target_image = data.get('TargetImage', '')
+
+        source_name = ntpath.basename(source_image).lower()
+        target_name = ntpath.basename(target_image).lower()
+
+        # CRITICAL FIX: core Windows system processes routinely perform or
+        # receive CreateRemoteThread calls as part of completely normal OS
+        # operation (service management, legitimate DLL injection by shell
+        # extensions, accessibility tools, etc.). Without this check, ANY
+        # such event involving svchost.exe/services.exe/etc. -- source OR
+        # target -- was treated as confirmed malware and the process was
+        # killed, which can destabilize or crash Windows.
+        if source_name in KNOWN_SYSTEM_PROCESSES or target_name in KNOWN_SYSTEM_PROCESSES:
+            return
 
         if self.trusted_apps.check(source_image):
             return
@@ -468,10 +593,35 @@ class CoreEngine:
         if not target_path or pid <= 4:
             return
 
-        # Rate check (independent signal)
-        rate_triggered = self.ransomware_tracker.record_and_check(pid)
+        try:
+            proc_name = psutil.Process(pid).name() if psutil else f"PID_{pid}"
+            proc_exe = psutil.Process(pid).exe() if psutil else ""
+        except Exception:
+            # Process likely already exited (very common for short-lived
+            # file operations) -- nothing to act on.
+            return
 
-        # Entropy check (only if file is reasonably sized -- avoid overhead on tiny files)
+        # Trusted apps (the user's own projects) are never touched by
+        # ransomware heuristics, checked FIRST before any other work.
+        if self.trusted_apps.check(proc_exe):
+            return
+
+        name_lower = proc_name.lower()
+
+        # Extra safety net: never let this heuristic act on core Windows
+        # system processes, regardless of their file-write pattern.
+        if name_lower in KNOWN_SYSTEM_PROCESSES:
+            return
+
+        # Known-legitimate high-I/O software (browsers, sync clients,
+        # IDEs, etc.) gets a much higher rate ceiling -- this is what was
+        # causing Chrome and similar normal software to be flagged: the
+        # old fixed threshold (25 files/min) is trivially exceeded by
+        # completely ordinary browsing activity.
+        threshold = (RANSOMWARE_RATE_THRESHOLD_HIGH_IO if name_lower in KNOWN_HIGH_IO_APPS
+                    else RANSOMWARE_RATE_THRESHOLD_NORMAL)
+        rate_triggered = self.ransomware_tracker.record_and_check(pid, threshold=threshold)
+
         entropy_triggered, entropy_val, entropy_reason = False, None, ""
         try:
             if os.path.exists(target_path) and os.path.getsize(target_path) > 1024:
@@ -479,26 +629,46 @@ class CoreEngine:
         except Exception:
             pass
 
-        if (rate_triggered or entropy_triggered) and self._cooldown_ok(f"ransom_{pid}", seconds=15):
-            try:
-                proc_name = psutil.Process(pid).name() if psutil else f"PID_{pid}"
-                proc_exe = psutil.Process(pid).exe() if psutil else ""
-            except Exception:
-                proc_name, proc_exe = f"PID_{pid}", ""
+        if not (rate_triggered or entropy_triggered):
+            return
+        if not self._cooldown_ok(f"ransom_{pid}", seconds=15):
+            return
 
-            if self.trusted_apps.check(proc_exe):
-                return
+        reason_parts = []
+        if rate_triggered:
+            reason_parts.append(f"High file-write rate (>{threshold} files/min)")
+        if entropy_triggered:
+            reason_parts.append(entropy_reason)
 
-            reason_parts = []
-            if rate_triggered:
-                reason_parts.append("Abnormally high file-write rate (mass encryption pattern)")
-            if entropy_triggered:
-                reason_parts.append(entropy_reason)
-
+        # CRITICAL SAFETY DECISION: rate and entropy are treated very
+        # differently in confidence. Genuine ransomware shows BOTH signals
+        # together (mass writes AND the resulting files are high-entropy
+        # ciphertext). Rate alone -- even a high rate -- is common in
+        # legitimate heavy usage (browsers, installers, sync tools) and
+        # must NOT auto-terminate a process on its own; it goes through
+        # the uncertain-tier review (ask the user) instead. Only the
+        # combination of both signals together is treated as confirmed
+        # enough for an immediate, no-permission-asked auto-block.
+        if rate_triggered and entropy_triggered:
             self._raise_incident(
                 threat_name=proc_name, pid=pid, exe_path=proc_exe,
                 reason="; ".join(reason_parts), entropy_score=entropy_val,
                 severity="CRITICAL",
+            )
+        elif entropy_triggered:
+            # High entropy alone (without a rate burst) is still a fairly
+            # strong single-file signal -- e.g. one file just got encrypted
+            # -- so this stays CRITICAL, but rate-alone does not.
+            self._raise_incident(
+                threat_name=proc_name, pid=pid, exe_path=proc_exe,
+                reason="; ".join(reason_parts), entropy_score=entropy_val,
+                severity="HIGH",
+            )
+        else:
+            # Rate-only signal: ask before acting, never auto-kill.
+            self._raise_uncertain_review(
+                threat_name=proc_name, pid=pid, exe_path=proc_exe,
+                reasons=reason_parts, score=35,
             )
 
     # ------------------------------------------------------------------
@@ -510,6 +680,9 @@ class CoreEngine:
         image = data.get('Image', '')
         if not target:
             return
+
+        if ntpath.basename(image).lower() in KNOWN_SYSTEM_PROCESSES:
+            return  # Windows itself modifies these keys routinely -- not noteworthy
 
         if self.trusted_apps.check(image):
             return  # your own tools are allowed to set up their own persistence
@@ -549,9 +722,25 @@ class CoreEngine:
                     name = proc.name() if proc else f"PID_{pid}"
                 except Exception:
                     exe, name = "", f"PID_{pid}"
-                self._raise_incident(
+
+                # SAFETY FIX: device-correlation alone (a new USB device
+                # connecting shortly before a shell opens) is a WEAKER
+                # signal than confirmed inhuman typing cadence -- it can't
+                # tell the difference between an actual BadUSB attack and
+                # simple coincidental timing (e.g. plugging in any USB
+                # device, then separately opening a terminal you were
+                # already about to use). Auto-terminating cmd.exe/
+                # powershell.exe on this signal alone risked killing the
+                # user's own legitimate, actively-in-use terminal session.
+                # This now asks for confirmation instead of auto-blocking;
+                # genuine BadUSB attacks that also show inhuman typing
+                # cadence are still caught with full confidence via that
+                # separate, stronger signal.
+                if self.trusted_apps.check(exe):
+                    return
+                self._raise_uncertain_review(
                     threat_name=name, pid=pid, exe_path=exe,
-                    reason=message, severity="CRITICAL",
+                    reasons=[message], score=30,
                 )
 
     # ------------------------------------------------------------------
@@ -562,6 +751,26 @@ class CoreEngine:
                         parent_process: str = None, parent_pid: int = None,
                         command_line: str = None, entropy_score: float = None,
                         severity: str = "HIGH"):
+        # ABSOLUTE FINAL SAFETY NET: every single detection path in this
+        # engine funnels through this one function before anything gets
+        # terminated or quarantined. Regardless of which handler triggered
+        # this call (and regardless of whether that handler already had
+        # its own system-process check -- belt and suspenders, in case a
+        # future handler forgets to add one), a core Windows system
+        # process is NEVER auto-terminated here. This is the single
+        # choke-point fix that guarantees the svchost.exe-crash class of
+        # bug can never happen again, no matter which detection code path
+        # is responsible.
+        threat_name_lower = (threat_name or "").lower()
+        if threat_name_lower in KNOWN_SYSTEM_PROCESSES or pid in (0, 4):
+            self.log_callback(
+                f"[SAFETY] Blocked an attempt to act on protected system process "
+                f"'{threat_name}' (PID {pid}) -- reason was: {reason}. This is treated "
+                f"as a detection-logic false positive, not a real threat, and is logged "
+                f"here for review rather than acted on."
+            )
+            return
+
         case_id = make_case_id(pid)
         quarantine_path = self._respond(pid, exe_path)
 

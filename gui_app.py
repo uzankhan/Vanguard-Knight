@@ -46,9 +46,24 @@ try:
 except ImportError:
     HAVE_WINSOUND = False  # non-Windows dev/testing fallback
 
+try:
+    import pystray
+    from PIL import Image as PILImage
+    HAVE_TRAY = True
+except Exception:
+    # On Windows (our actual target), pystray uses its win32 backend which
+    # just needs pywin32 (already a hard dependency). This broad except is
+    # specifically to tolerate non-Windows dev/test environments where
+    # pystray's backend auto-detection can fail in other ways (e.g. no
+    # GTK on a bare Linux box) -- the app still runs fine without a tray
+    # icon, just falling back to iconify() for minimize.
+    HAVE_TRAY = False
+
 from theme import *
 from hand_verify_dialog import HandVerifyDialog
 from verdict_popup import PermissionRequestPopup
+from hacker_fx import (MatrixRainCanvas, GlitchLabel, draw_hud_corners,
+                       HUDCutPanel, BlinkingCursor, TypewriterTextbox)
 
 try:
     from core_engine import CoreEngine
@@ -374,6 +389,33 @@ class VanguardMainWindow(ctk.CTk):
         apply_window_icon(self)
         self._logo_image = load_logo_ctk_image(size=(40, 40))
 
+        # -----------------------------------------------------------
+        # KIOSK-STYLE WINDOW: no native title bar, no native [_][□][X]
+        # buttons. This removes the casual "just click X" route to close
+        # the app -- the ONLY way to stop protection is the Deactivate
+        # button, which requires hand verification. Minimize is still
+        # available, but only through our own controlled 3-dot menu.
+        #
+        # Honest limits (same OS-security-model point as before): this
+        # stops CASUAL closing (no X button, Alt+F4 does nothing). It does
+        # NOT and CANNOT stop a genuine machine Administrator from force-
+        # killing the process via Task Manager -- that's fundamental to how
+        # Windows works, not something any user-mode app can override. The
+        # watchdog service (self_protection.py / watchdog_main.py) is what
+        # handles that case by restarting protection automatically.
+        # -----------------------------------------------------------
+        self.overrideredirect(True)
+        self._center_on_screen(1000, 680)
+
+        # Block Alt+F4 outright -- it does nothing rather than opening any
+        # dialog, since closing must always be a deliberate button click,
+        # never a keyboard reflex.
+        self.bind("<Alt-F4>", lambda e: "break")
+        # Safety net: if anything ever does trigger the WM_DELETE_WINDOW
+        # protocol (some OS/window-manager paths can still send it even to
+        # overrideredirect windows), swallow it instead of closing.
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
         self.is_active = False
         self.engine = None
 
@@ -473,18 +515,52 @@ class VanguardMainWindow(ctk.CTk):
         header.pack(fill="x")
         header.pack_propagate(False)
 
+        # overrideredirect(True) removes the OS's native window dragging
+        # along with the title bar, so we implement our own: clicking and
+        # dragging anywhere on the header moves the window. This keeps the
+        # window usable/repositionable despite having no OS chrome.
+        self._drag_offset_x = 0
+        self._drag_offset_y = 0
+
+        def start_drag(event):
+            self._drag_offset_x = event.x
+            self._drag_offset_y = event.y
+
+        def do_drag(event):
+            x = self.winfo_pointerx() - self._drag_offset_x
+            y = self.winfo_pointery() - self._drag_offset_y
+            self.geometry(f"+{x}+{y}")
+
+        header.bind("<Button-1>", start_drag)
+        header.bind("<B1-Motion>", do_drag)
+        header.bind("<Double-Button-1>", lambda e: self._toggle_fullscreen())
+
         left = ctk.CTkFrame(header, fg_color="transparent")
         left.pack(side="left", padx=20)
+        left.bind("<Button-1>", start_drag)
+        left.bind("<B1-Motion>", do_drag)
         if self._logo_image:
             ctk.CTkLabel(left, image=self._logo_image, text="").pack(side="left", padx=(0, 10))
         else:
             ctk.CTkLabel(left, text="🛡", font=(FONT_FAMILY, 30), text_color=COLOR_PRIMARY).pack(side="left", padx=(0, 10))
         title_box = ctk.CTkFrame(left, fg_color="transparent")
         title_box.pack(side="left")
-        ctk.CTkLabel(title_box, text=APP_TITLE, font=(FONT_FAMILY, 22, "bold"),
-                    text_color=COLOR_PRIMARY).pack(anchor="w")
-        ctk.CTkLabel(title_box, text=APP_TAGLINE, font=FONT_SMALL,
-                    text_color=COLOR_TEXT_MUTED).pack(anchor="w")
+        title_box.bind("<Button-1>", start_drag)
+        title_box.bind("<B1-Motion>", do_drag)
+        title_lbl = ctk.CTkLabel(title_box, text=APP_TITLE, font=(FONT_FAMILY, 22, "bold"),
+                                 text_color=COLOR_PRIMARY)
+        title_lbl.pack(anchor="w")
+        title_lbl.bind("<Button-1>", start_drag)
+        title_lbl.bind("<B1-Motion>", do_drag)
+        tagline_lbl = ctk.CTkLabel(title_box, text=APP_TAGLINE, font=FONT_SMALL,
+                                   text_color=COLOR_TEXT_MUTED)
+        tagline_lbl.pack(anchor="w")
+        tagline_lbl.bind("<Button-1>", start_drag)
+        tagline_lbl.bind("<B1-Motion>", do_drag)
+
+        # Subtle occasional glitch-flicker on the title -- purely cosmetic,
+        # reads as "terminal/hacker interface" rather than a static app label.
+        self._title_glitch = GlitchLabel(title_lbl, APP_TITLE, glitch_chance=0.006)
 
         right = ctk.CTkFrame(header, fg_color="transparent")
         right.pack(side="right", padx=20)
@@ -496,10 +572,101 @@ class VanguardMainWindow(ctk.CTk):
                                          text_color=COLOR_TEXT_MUTED)
         self.status_label.pack(side="left", padx=(0, 20))
 
+        # Custom minimize -- the only window-chrome-like control we expose.
+        # There is deliberately NO close/X button anywhere in this header.
+        ctk.CTkButton(right, text="—", width=36, height=36, font=(FONT_FAMILY, 16),
+                     fg_color="transparent", hover_color=COLOR_BORDER,
+                     text_color=COLOR_TEXT_MUTED, command=self._minimize
+                     ).pack(side="left", padx=(0, 4))
+
+        # Fullscreen toggle -- overrideredirect() removes the native
+        # maximize button along with everything else, so this replaces it.
+        ctk.CTkButton(right, text="⛶", width=36, height=36, font=(FONT_FAMILY, 14),
+                     fg_color="transparent", hover_color=COLOR_BORDER,
+                     text_color=COLOR_TEXT_MUTED, command=self._toggle_fullscreen
+                     ).pack(side="left", padx=(0, 4))
+
         self.menu_btn = ctk.CTkButton(right, text="⋮", width=40, height=40, font=(FONT_FAMILY, 20),
                                       fg_color="transparent", hover_color=COLOR_BORDER,
                                       text_color=COLOR_TEXT, command=self._show_menu)
         self.menu_btn.pack(side="left")
+
+    def _center_on_screen(self, width: int, height: int):
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        x = (screen_w - width) // 2
+        y = (screen_h - height) // 2
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self._normal_geometry = f"{width}x{height}+{x}+{y}"
+        self._is_fullscreen = False
+
+    def _toggle_fullscreen(self):
+        # overrideredirect windows have no native maximize button, so this
+        # is our replacement: toggles between the normal windowed size/
+        # position and covering the entire screen. We track the previous
+        # geometry ourselves since there's no OS-level "restore" to rely on.
+        if not self._is_fullscreen:
+            self._normal_geometry = self.geometry()
+            screen_w = self.winfo_screenwidth()
+            screen_h = self.winfo_screenheight()
+            self.geometry(f"{screen_w}x{screen_h}+0+0")
+            self._is_fullscreen = True
+        else:
+            self.geometry(self._normal_geometry)
+            self._is_fullscreen = False
+
+    def _minimize(self):
+        # overrideredirect windows can be lost from the taskbar entirely on
+        # some Windows configurations if just iconify()'d -- withdraw()
+        # (fully hide) + a system tray icon guarantees the window is always
+        # recoverable, which is the important safety property here.
+        self.withdraw()
+        self._ensure_tray_icon()
+
+    def _ensure_tray_icon(self):
+        if not HAVE_TRAY:
+            # No pystray available -- fall back to iconify so the window
+            # isn't completely unreachable, even without a tray icon.
+            try:
+                self.deiconify()
+                self.iconify()
+            except Exception:
+                pass
+            return
+        if getattr(self, '_tray_icon', None) is not None:
+            return  # already running
+
+        try:
+            if self._logo_image is not None:
+                pil_img = PILImage.open(LOGO_PATH).resize((64, 64))
+            else:
+                pil_img = PILImage.new('RGB', (64, 64), color=COLOR_PRIMARY)
+        except Exception:
+            pil_img = PILImage.new('RGB', (64, 64), color=COLOR_PRIMARY)
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Show Vanguard Knight", self._tray_show, default=True),
+            pystray.MenuItem(f"Status: {'ACTIVE' if self.is_active else 'INACTIVE'}", None, enabled=False),
+        )
+        self._tray_icon = pystray.Icon("VanguardKnight", pil_img, APP_TITLE, menu)
+        threading.Thread(target=self._tray_icon.run, daemon=True).start()
+
+    def _tray_show(self, icon=None, item=None):
+        # Called from the tray icon's own thread -- must marshal back onto
+        # the Tkinter main thread via .after(), same thread-safety rule as
+        # the engine callbacks.
+        self.after(0, self._restore_from_tray)
+
+    def _restore_from_tray(self):
+        if getattr(self, '_tray_icon', None) is not None:
+            try:
+                self._tray_icon.stop()
+            except Exception:
+                pass
+            self._tray_icon = None
+        self.deiconify()
+        self.lift()
+        self.focus_force()
 
     def _show_menu(self):
         menu = ctk.CTkToplevel(self)
@@ -520,55 +687,99 @@ class VanguardMainWindow(ctk.CTk):
                      font=FONT_BODY, command=lambda: [menu.destroy(), AboutPage(self)]).pack(fill="x", padx=8, pady=4)
         ctk.CTkButton(menu, text="🗕  Minimize", anchor="w",
                      fg_color="transparent", hover_color=COLOR_BORDER, text_color=COLOR_TEXT,
-                     font=FONT_BODY, command=lambda: [menu.destroy(), self.iconify()]).pack(fill="x", padx=8, pady=4)
+                     font=FONT_BODY, command=lambda: [menu.destroy(), self._minimize()]).pack(fill="x", padx=8, pady=4)
 
     # ---------------- Body ----------------
+
+    def _add_hud_corners(self, panel, size=20, color=None):
+        """Adds four small L-bracket canvases at the corners of `panel`,
+        giving it a HUD/targeting-frame look instead of a plain rounded
+        rectangle. Each tiny canvas's background matches the panel's fill
+        color so only the bracket lines are visible, blending seamlessly."""
+        color = color or COLOR_PRIMARY
+        specs = [
+            ('nw', 0.0, 0.0, 0, 0, ( (0,0,size,0), (0,0,0,size) )),
+            ('ne', 1.0, 0.0, -size, 0, ( (size,0,0,0), (size,0,size,size) )),
+            ('sw', 0.0, 1.0, 0, -size, ( (0,size,size,size), (0,0,0,size) )),
+            ('se', 1.0, 1.0, -size, -size, ( (0,size,size,size), (size,0,size,size) )),
+        ]
+        for anchor, relx, rely, xoff, yoff, lines in specs:
+            c = Canvas(panel, width=size, height=size, bg=COLOR_PANEL, highlightthickness=0)
+            c.place(relx=relx, rely=rely, x=xoff, y=yoff, anchor=anchor)
+            for x1, y1, x2, y2 in lines:
+                c.create_line(x1, y1, x2, y2, fill=color, width=2)
 
     def _build_body(self):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # Left: main control
-        left_panel = ctk.CTkFrame(body, fg_color=COLOR_PANEL, corner_radius=16, width=320)
-        left_panel.pack(side="left", fill="y", padx=(0, 16))
-        left_panel.pack_propagate(False)
+        # Left: main control -- angled-corner HUD panel with bracketed title
+        left_hud = HUDCutPanel(body, width=320, height=600, title="Shield Control",
+                               corner_cut=20)
+        left_hud.pack(side="left", fill="y", padx=(0, 16))
+        left_panel = left_hud.content
 
-        ctk.CTkLabel(left_panel, text="SHIELD CONTROL", font=(FONT_FAMILY, 13, "bold"),
-                    text_color=COLOR_TEXT_MUTED).pack(pady=(24, 10))
+        # Ambient matrix-rain texture behind the shield control content --
+        # placed first (bottom of z-order among siblings), dimmed so it
+        # reads as background atmosphere rather than competing with the
+        # actual controls drawn on top of it.
+        self._matrix_bg = MatrixRainCanvas(left_panel, width=280, height=560, dim=True,
+                                           bg_color=COLOR_PANEL)
+        self._matrix_bg.place(x=0, y=0, relwidth=1.0, relheight=1.0)
 
         self.glow_button = PulsingGlowButton(
             left_panel, text="ACTIVATE", command=self._toggle_shield,
-            base_color=COLOR_SECONDARY, glow_color=COLOR_PRIMARY, size=200,
+            base_color=COLOR_SECONDARY, glow_color=COLOR_PRIMARY, size=190,
         )
-        self.glow_button.pack(pady=10)
+        self.glow_button.pack(pady=(20, 10))
 
         ctk.CTkLabel(left_panel, text="Deactivating requires hand verification.",
-                    font=FONT_SMALL, text_color=COLOR_TEXT_MUTED, wraplength=260,
+                    font=FONT_SMALL, text_color=COLOR_TEXT_MUTED, wraplength=250,
                     justify="center").pack(pady=(6, 20))
 
-        stats_card = ctk.CTkFrame(left_panel, fg_color=COLOR_BG, corner_radius=12)
-        stats_card.pack(fill="x", padx=16, pady=10)
-        self.stats_label = ctk.CTkLabel(stats_card, text="Analyzed: 0\nBlocked: 0\nTrusted-skipped: 0",
+        stats_card = ctk.CTkFrame(left_panel, fg_color=COLOR_BG, corner_radius=0,
+                                  border_width=1, border_color=COLOR_BORDER)
+        stats_card.pack(fill="x", padx=10, pady=10)
+        self.stats_label = ctk.CTkLabel(stats_card,
+                                        text="ANALYZED: 0\nBLOCKED: 0\nTRUSTED-SKIPPED: 0",
                                         font=FONT_BODY, text_color=COLOR_PRIMARY, justify="left")
         self.stats_label.pack(padx=16, pady=16, anchor="w")
 
-        # Right: live log
-        right_panel = ctk.CTkFrame(body, fg_color=COLOR_PANEL, corner_radius=16)
-        right_panel.pack(side="right", fill="both", expand=True)
+        # Right: live log -- same HUD-cut styling, bracketed title
+        right_hud = HUDCutPanel(body, width=600, height=600, title="Live Activity Log",
+                                corner_cut=20)
+        right_hud.pack(side="right", fill="both", expand=True)
+        right_panel = right_hud.content
 
-        ctk.CTkLabel(right_panel, text="LIVE ACTIVITY LOG", font=(FONT_FAMILY, 13, "bold"),
-                    text_color=COLOR_TEXT_MUTED).pack(anchor="w", padx=20, pady=(20, 8))
         self.log_box = ctk.CTkTextbox(right_panel, fg_color=COLOR_BG, text_color=COLOR_PRIMARY,
-                                      font=FONT_MONO_LOG)
-        self.log_box.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+                                      font=FONT_MONO_LOG, border_width=0)
+        self.log_box.pack(fill="both", expand=True, side="top")
+
+        # Terminal-style prompt line with a blinking cursor underneath the
+        # log, purely atmospheric -- reinforces the "live terminal" feel.
+        self._prompt_label = ctk.CTkLabel(right_panel, text="", font=FONT_MONO_LOG,
+                                          text_color=COLOR_PRIMARY, anchor="w")
+        self._prompt_label.pack(fill="x", side="bottom", pady=(4, 0))
+        self._prompt_cursor = BlinkingCursor(self._prompt_label, base_text="vanguard@shield:~$")
+
+        # New log lines are revealed with a typewriter effect instead of
+        # appearing instantly -- reads as the system actively processing.
+        self._log_typewriter = TypewriterTextbox(self.log_box, chars_per_tick=3, tick_ms=8)
+
         self._log("System idle. Press ACTIVATE to begin protection.")
 
     # ---------------- Behavior ----------------
 
     def _log(self, message: str):
         ts = datetime.now().strftime("%H:%M:%S")
-        self.log_box.insert("end", f"[{ts}] {message}\n")
-        self.log_box.see("end")
+        line = f"[{ts}] {message}"
+        if hasattr(self, '_log_typewriter'):
+            self._log_typewriter.append_line(line)
+        else:
+            # Fallback for any log call that happens before the typewriter
+            # wrapper is set up (shouldn't normally happen, but stays safe).
+            self.log_box.insert("end", line + "\n")
+            self.log_box.see("end")
 
     def _toggle_shield(self):
         if not self.is_active:

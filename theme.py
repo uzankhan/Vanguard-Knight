@@ -8,29 +8,78 @@ tool) rather than playful. Every color below is used consistently across
 all screens so the interface feels like one cohesive product.
 """
 
-# ---- Core palette ----
-BLACK = "#0A0D0A"              # near-black background (slight green tint, not pure black)
-DARK_PANEL = "#12160F"         # panel/card background
-DARK_GREEN = "#1B3A2B"         # secondary surfaces, borders
-MID_GREEN = "#2E6B45"          # inactive elements, secondary buttons
-BRIGHT_GREEN = "#4CD97B"       # primary accent -- active/success states, glow color
-LIGHT_GREEN = "#9BE8B4"        # highlighted text, hover states
-OLIVE = "#6B7A4F"              # tertiary accent, subtle warnings/neutral tags
-SILVER_GREY = "#B8C2BA"        # secondary text
-WHITE = "#F2F5F0"              # primary text
-ALERT_RED = "#FF3B3B"          # threat/critical alerts only -- used sparingly, high contrast
-ALERT_RED_GLOW = "#FF6B6B"     # lighter red for pulse/glow animation peaks
-AMBER_WARN = "#E0B94C"         # medium-severity warnings
+# ---- Core palette (per exact spec) ----
+BLACK = "#0D1A15"               # deep greenish-black background
+DARK_PANEL = "#0F1C16"          # panel/card background -- close to BLACK, panels
+                                 # read as "the same terminal surface", not separate cards
+DARK_GREEN = "#12261C"          # secondary surfaces, borders
+MID_GREEN = "#1E5C3A"           # inactive elements, secondary buttons
+BRIGHT_GREEN = "#00FF41"        # TERMINAL GREEN -- primary accent, all text/borders
+LIGHT_GREEN = "#6FFFA8"         # highlighted text, hover states
+OLIVE = "#4A6B3F"                # tertiary accent, subtle neutral tags
+SILVER_GREY = "#7FBF97"          # secondary/muted text -- kept green-tinted, not grey,
+                                  # to stay inside the terminal-green palette rather
+                                  # than reading as a "generic app" muted grey
+WHITE = "#D6FFE0"                 # primary text -- very light green-white, not pure
+                                   # white, so it still feels like a green phosphor screen
+ALERT_RED = "#FF0000"             # pure red -- ONLY for errors/critical alerts, used
+                                   # sparingly per spec, never as a decorative color
+ALERT_RED_GLOW = "#FF4D4D"
+AMBER_WARN = "#FFFF00"            # pure bright yellow -- ONLY for warnings, same rule
 
 # ---- Fonts ----
-FONT_FAMILY = "Consolas"       # monospace = tactical/technical feel, matches original design intent
-FONT_TITLE = (FONT_FAMILY, 30, "bold")
+# Per the requested aesthetic, these are the preferred fonts in priority
+# order. IMPORTANT: VT323, Share Tech Mono, and Fira Code are NOT
+# pre-installed on a stock Windows machine (they're Google Fonts) -- if
+# they aren't installed, Tkinter would silently substitute a default font
+# and lose the intended look. _pick_available_font() checks what's
+# actually installed and picks the best real match, falling back to
+# Consolas/Courier New (both guaranteed present on every Windows install)
+# so the app never looks broken even without the fancy fonts installed.
+#
+# To get the EXACT intended look, install one of these (free, ~5 seconds):
+#   VT323: https://fonts.google.com/specimen/VT323
+#   Share Tech Mono: https://fonts.google.com/specimen/Share+Tech+Mono
+#   Fira Code: https://fonts.google.com/specimen/Fira+Code
+# Download -> right-click the .ttf -> "Install for all users" -> restart the app.
+
+def _pick_available_font():
+    try:
+        import tkinter as tk
+        import tkinter.font as tkfont
+
+        # tkinter.font.families() requires a Tk instance to exist. If the
+        # app hasn't created its main window yet (very likely, since
+        # theme.py is imported before any window), spin up a temporary
+        # hidden one just for this query, then destroy it -- this way the
+        # check works correctly regardless of import order.
+        temp_root = None
+        if tk._default_root is None:
+            temp_root = tk.Tk()
+            temp_root.withdraw()
+
+        available = set(tkfont.families())
+
+        if temp_root is not None:
+            temp_root.destroy()
+
+        preference_order = ["VT323", "Share Tech Mono", "Fira Code", "Consolas", "Courier New"]
+        for f in preference_order:
+            if f in available:
+                return f
+        return "Courier New"  # absolute last resort, present on all Windows
+    except Exception:
+        return "Consolas"
+
+
+FONT_FAMILY = _pick_available_font()
+FONT_TITLE = (FONT_FAMILY, 32, "bold")
 FONT_SUBTITLE = (FONT_FAMILY, 14)
 FONT_HEADING = (FONT_FAMILY, 18, "bold")
-FONT_BODY = (FONT_FAMILY, 12)
-FONT_SMALL = (FONT_FAMILY, 10)
+FONT_BODY = (FONT_FAMILY, 13)
+FONT_SMALL = (FONT_FAMILY, 11)
 FONT_BUTTON = (FONT_FAMILY, 14, "bold")
-FONT_MONO_LOG = ("Consolas", 11)
+FONT_MONO_LOG = (FONT_FAMILY, 12)
 
 # ---- Semantic aliases (use these in code so a future re-theme is a one-line change) ----
 COLOR_BG = BLACK
