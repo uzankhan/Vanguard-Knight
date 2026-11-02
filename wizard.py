@@ -204,6 +204,7 @@ class SetupWizard(ctk.CTk):
         self._latest_frame_rgb = None
         self._latest_landmarks = None
         self._consecutive_stable_frames = 0
+        self._enrollment_frames_buffer = []
         self._camera_error = None
 
         # IMPORTANT: camera open + frame-read loop runs in a background
@@ -259,9 +260,19 @@ class SetupWizard(ctk.CTk):
                 if results.multi_hand_landmarks:
                     self._latest_landmarks = results.multi_hand_landmarks[0].landmark
                     self._consecutive_stable_frames += 1
+                    # Collect this frame's landmarks for multi-frame
+                    # averaging -- a much more robust baseline than using
+                    # only the very last frame (see enroll_from_multiple_
+                    # landmarks in hand_auth.py for why this matters).
+                    self._enrollment_frames_buffer.append(self._latest_landmarks)
                 else:
                     self._latest_landmarks = None
                     self._consecutive_stable_frames = 0
+                    # Hand tracking was lost -- restart the buffer so we
+                    # don't average frames from before/after a break in
+                    # tracking (which could include a brief mis-tracked
+                    # frame right at the loss/recovery boundary).
+                    self._enrollment_frames_buffer = []
 
                 self._latest_frame_rgb = frame_rgb
         except Exception as e:
@@ -309,7 +320,10 @@ class SetupWizard(ctk.CTk):
 
     def _finish_enrollment(self):
         self._camera_active = False
-        if self._latest_landmarks is not None:
+        if self._enrollment_frames_buffer:
+            self.hand_mgr.enroll_from_multiple_landmarks(self._enrollment_frames_buffer)
+        elif self._latest_landmarks is not None:
+            # Fallback (shouldn't normally happen, but stays safe)
             self.hand_mgr.enroll_from_landmarks(self._latest_landmarks)
         self.enroll_status.configure(text="[OK] Hand verification set up successfully!",
                                      text_color=COLOR_PRIMARY)
